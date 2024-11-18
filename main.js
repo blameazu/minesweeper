@@ -1,7 +1,8 @@
-const debug = 1; // 0 not debuging 1 is debuging
+const debug = 0; // 0 not debuging 1 is debuging
 
 const sz = 16;
-const bombs = 30;
+let bombs = 10;
+let nowdiff = 0;
 
 let mp = Array.from({length : sz}, () => Array(sz).fill(0));
 let vis = Array.from({length : sz}, () => Array(sz).fill(false));
@@ -21,6 +22,26 @@ const colorDict = {
     7: "black",
     8: "gold"
 };
+
+const diffsetting = {
+    1: {name:'Easy', bombs: 10 , color: "green"},
+    2: { name:'Medium', bombs: 40, color: "orange" },
+    3: { name:'Hard', bombs: 60, color: "red"}
+};
+
+const diff = document.getElementById('diff');
+diff.addEventListener('click', togglediff);
+
+function togglediff() {
+    nowdiff = (nowdiff+1)%3;
+    const now = diffsetting[nowdiff+1];
+    diff.textContent = `${now.name}`;
+    diff.style.backgroundColor = `${now.color}`;
+    bombs = now.bombs;
+    generate_map();
+    place_bombs();
+    if(debug) console.log('map :', mp);
+}
 
 function place_bombs() {
     const grid = document.getElementById('grid');
@@ -55,6 +76,7 @@ function check() {
 
 function generate_map() {
     const grid = document.getElementById('grid');
+    grid.innerHTML = '';
     for(let i = 0; i < sz; i++) {
         const row = document.createElement('div');
         for(let j = 0; j < sz; j++) {

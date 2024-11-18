@@ -10,6 +10,36 @@ body {
     min-height: 100vh;
 }
 
+#diff-class {
+    display: flex;
+    align-items: center;
+    margin-bottom: 2em;
+}
+
+#diff-label {
+    font-size: 1.2rem;
+    font-weight: bold;
+    color: #343a40;
+    margin-right: 10px;
+}
+
+#diff {
+    width: 80px;
+    height: 40px;
+    padding: 0.5em 1em;
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+}
+
+#diff:hover {
+    background-color: #45a049;
+}
+
 h1 {
     color: #343a40;
     margin-bottom: 20px;
