@@ -1,11 +1,18 @@
-# minesweeper
-### a web for playing minesweeper
+# Minesweeper
+### A web for playing minesweeper
+
+# Functions
+
+* Basic Minesweeper functions
+
+* Difficulty selection system
 
 # How it works?
-using **html** to generate the construction of web
 
-using **css** to make my web prettier!
+* Using **html** to generate the construction of web
 
-using **javascript** to dispose the operations of user input
+* Using **css** to make my web prettier!
 
-also add some algorithms to operate more efficiently and clearly
+* Using **javascript** to dispose the operations of user input
+
+* Also add some algorithms to operate more efficiently and clearly

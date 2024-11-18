@@ -1,27 +1,16 @@
+// all const stuff
+
 const debug = 0; // 0 not debuging 1 is debuging
 
 const sz = 16;
 let bombs = 10;
 let nowdiff = 0;
 
-let mp = Array.from({length : sz}, () => Array(sz).fill(0));
-let vis = Array.from({length : sz}, () => Array(sz).fill(false));
-let flag = Array.from({length : sz}, () => Array(sz).fill(false));
+let mp;
+let vis;
+let flag;
 
-const dir = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 1], [1, -1], [1, 0], [1, 1]];
-const dir2 = [[0, 1], [1, 0], [-1, 0], [0, -1]];
-
-const colorDict = {
-    0: "gray",
-    1: "lime",
-    2: "orange",
-    3: "red",
-    4: "purple",
-    5: "darkblue",
-    6: "darkred",
-    7: "black",
-    8: "gold"
-};
+// diff toggle system
 
 const diffsetting = {
     1: {name:'Easy', bombs: 10 , color: "green"},
@@ -38,41 +27,10 @@ function togglediff() {
     diff.textContent = `${now.name}`;
     diff.style.backgroundColor = `${now.color}`;
     bombs = now.bombs;
-    generate_map();
-    place_bombs();
-    if(debug) console.log('map :', mp);
+    startgame();
 }
 
-function place_bombs() {
-    const grid = document.getElementById('grid');
-    let now = 0;
-    while(now < bombs) {
-        const x = Math.floor(Math.random()*16);
-        const y = Math.floor(Math.random()*16);
-        if(mp[x][y] === 0) {
-            mp[x][y] = 1;
-            now++;
-            const cell = grid.children[x].children[y];
-        }
-    }
-}
-
-function color(x, cell) {
-    cell.innerText = x;
-    cell.style.color = colorDict[x];
-}
-
-function accumulate(arr, x) {
-    return arr.reduce((re, now) => {
-        return re + now.filter(now2 => now2 === x).length;
-    }, 0);
-}
-
-function check() {
-    const sum = accumulate(vis, true) + accumulate(flag, true);
-    if(sum === sz*sz) alert("you win!");
-    if(debug) console.log(sum);
-}
+// game-initializer
 
 function generate_map() {
     const grid = document.getElementById('grid');
@@ -99,11 +57,85 @@ function generate_map() {
     }
 }
 
+function place_bombs() {
+    const grid = document.getElementById('grid');
+    let now = 0;
+    while(now < bombs) {
+        const x = Math.floor(Math.random()*16);
+        const y = Math.floor(Math.random()*16);
+        if(mp[x][y] === 0) {
+            mp[x][y] = 1;
+            now++;
+            const cell = grid.children[x].children[y];
+        }
+    }
+}
+
+function startgame() {
+    mp = Array.from({length : sz}, () => Array(sz).fill(0));
+    vis = Array.from({length : sz}, () => Array(sz).fill(false));
+    flag = Array.from({length : sz}, () => Array(sz).fill(false));
+    const grid = document.getElementById('grid');
+    grid.innerHTML = '';
+    generate_map();
+    place_bombs();
+    if(debug) console.log('map :', mp);
+}
+
+// small tool
+
+function accumulate(arr, x) {
+    return arr.reduce((re, now) => {
+        return re + now.filter(now2 => now2 === x).length;
+    }, 0);
+}
+
+//------ main-game-operation --------
+
+// check
+
+function check() {
+    const sum = accumulate(vis, true) + accumulate(flag, true);
+    if(sum === sz*sz) alert("you win!");
+    if(debug) console.log(sum);
+}
+
 function toggleFlag(x, y, cell) {
     if(vis[x][y]) return;
     cell.innerText = (flag[x][y] ? '' : '🚩');
     flag[x][y] = !flag[x][y];
     check();
+}
+
+// find-path-system
+
+const dir = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 1], [1, -1], [1, 0], [1, 1]];
+const dir2 = [[0, 1], [1, 0], [-1, 0], [0, -1]];
+
+function beclicked(x, y, cell){
+    if(flag[x][y]) return;
+    if(mp[x][y]) {
+        cell.innerText = '💣';
+        alert('Game over!');
+        startgame();
+    } else {        
+        const cnt = cnt_bombs_around(x, y);
+        vis[x][y] = true;
+        color(cnt, cell);
+        if(!cnt) bfs(x, y);
+        check();
+    }
+}
+
+function cnt_bombs_around(x, y) {
+    let re = 0;
+    for(let [dx, dy] of dir) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if(nx < 0 || nx >= sz || ny < 0 || ny >= sz) continue;
+        if(mp[nx][ny]) re++;
+    }
+    return re;
 }
 
 function bfs(x, y) {
@@ -126,32 +158,31 @@ function bfs(x, y) {
     }
 }
 
-function beclicked(x, y, cell){
-    if(flag[x][y]) return;
-    if(mp[x][y]) {
-        cell.innerText = '💣';
-        alert('Game over!');
-    } else {        
-        const cnt = cnt_bombs_around(x, y);
-        vis[x][y] = true;
-        color(cnt, cell);
-        if(!cnt) bfs(x, y);
-        check();
-    }
+// color
+
+const colorDict = {
+    0: "gray",
+    1: "lime",
+    2: "orange",
+    3: "red",
+    4: "purple",
+    5: "darkblue",
+    6: "darkred",
+    7: "black",
+    8: "gold"
+};
+
+function color(x, cell) {
+    cell.innerText = x;
+    cell.style.color = colorDict[x];
 }
 
-function cnt_bombs_around(x, y) {
-    
-    let re = 0;
-    for(let [dx, dy] of dir) {
-        const nx = x + dx;
-        const ny = y + dy;
-        if(nx < 0 || nx >= sz || ny < 0 || ny >= sz) continue;
-        if(mp[nx][ny]) re++;
-    }
-    return re;
+//------ main-game-operation --------
+
+// main
+
+function main() {
+    startgame();
 }
 
-generate_map();
-place_bombs();
-if(debug) console.log('map :', mp);
+main();
