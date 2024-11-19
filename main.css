@@ -64,9 +64,10 @@ h1 {
     box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
 }
 
-button {
-    width: 40px;
-    height: 40px;
+button.grid-button {
+    width: 30px;
+    height: 30px;
+    margin: 2px;
     background-color: #e9ecef;
     border: 1px solid #adb5bd;
     border-radius: 5px;
@@ -77,17 +78,17 @@ button {
     transition: all 0.3s ease;
 }
 
-button:active {
+button.grid-button:active {
     background-color: #dee2e6;
     transform: scale(0.95);
 }
 
-button:hover {
+button.grid-button:hover {
     background-color: #f8f9fa;
     border-color: #868e96;
 }
 
-button.clicked {
+button.grid-button.clicked {
     background-color: #6c757d;
     color: white;
     cursor: default;

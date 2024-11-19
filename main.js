@@ -45,10 +45,7 @@ function generate_map() {
         for(let j = 0; j < sz; j++) {
             const cell = document.createElement('button');
             cell.name = `cell-${i}-${j}`;
-            cell.style.display = 'inline-block';
-            cell.style.margin = `2px`;
-            cell.style.width = `30px`;
-            cell.style.height = `30px`;
+            cell.className = `grid-button`;
             cell.addEventListener('click', () => {
                 beclicked(i, j, cell);
             });
