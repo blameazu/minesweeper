@@ -1,5 +1,7 @@
 # Minesweeper
+
 ### A web for playing minesweeper
+[WEB](https://blameazu.github.io/minesweeper/main.html)
 
 # Functions
 

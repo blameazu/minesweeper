@@ -10,6 +10,15 @@ body {
     min-height: 100vh;
 }
 
+#main {
+    flex: 1;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
 #diff-class {
     display: flex;
     align-items: center;
@@ -82,4 +91,50 @@ button.clicked {
     background-color: #6c757d;
     color: white;
     cursor: default;
+}
+
+#information {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background-color: #ffffff;
+    color: #495057;
+    padding: 15px 20px;
+    border: 1px solid #ced4da;
+    border-radius: 8px;
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+    font-size: 1rem;
+    font-weight: bold;
+    max-width: 250px;
+    text-align: center;
+    z-index: 1000;
+    transition: all 0.3s ease;
+}
+
+#information:hover {
+    transform: scale(1.05);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
+    cursor: default;
+}
+
+button.play-again {
+    margin: 10px auto;
+    width: 200px;
+    height: 40px;
+    background-color: gold;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    font-size: 1rem;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background-color 0.3s ease, transform 0.2s ease;
+}
+
+button.play-again:hover {
+    background-color: darkgoldenrod;
+}
+
+button.play-again:active {
+    transform: scale(0.95);
 }

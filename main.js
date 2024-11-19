@@ -2,9 +2,12 @@
 
 const debug = 0; // 0 not debuging 1 is debuging
 
-const sz = 16;
-let bombs = 10;
+let sz = 8;
+let bombs = 5;
 let nowdiff = 0;
+
+const flag_image = '🚩';
+const bomb_image = '💣';
 
 let mp;
 let vis;
@@ -13,9 +16,9 @@ let flag;
 // diff toggle system
 
 const diffsetting = {
-    1: {name:'Easy', bombs: 10 , color: "green"},
-    2: { name:'Medium', bombs: 40, color: "orange" },
-    3: { name:'Hard', bombs: 60, color: "red"}
+    1: {name:'Easy', size: 8, bombs: 5, color: "green"},
+    2: { name:'Medium', size: 13, bombs: 40, color: "orange" },
+    3: { name:'Hard', size : 16, bombs: 60, color: "red"}
 };
 
 const diff = document.getElementById('diff');
@@ -26,6 +29,7 @@ function togglediff() {
     const now = diffsetting[nowdiff+1];
     diff.textContent = `${now.name}`;
     diff.style.backgroundColor = `${now.color}`;
+    sz = now.size;
     bombs = now.bombs;
     startgame();
 }
@@ -34,6 +38,7 @@ function togglediff() {
 
 function generate_map() {
     const grid = document.getElementById('grid');
+    grid.style.gridTemplateColumns = `repeat(${sz}, 40px)`;
     grid.innerHTML = '';
     for(let i = 0; i < sz; i++) {
         const row = document.createElement('div');
@@ -61,8 +66,8 @@ function place_bombs() {
     const grid = document.getElementById('grid');
     let now = 0;
     while(now < bombs) {
-        const x = Math.floor(Math.random()*16);
-        const y = Math.floor(Math.random()*16);
+        const x = Math.floor(Math.random()*sz);
+        const y = Math.floor(Math.random()*sz);
         if(mp[x][y] === 0) {
             mp[x][y] = 1;
             now++;
@@ -80,6 +85,21 @@ function startgame() {
     generate_map();
     place_bombs();
     if(debug) console.log('map :', mp);
+    upd(`grid size : ${sz}\n remaining bombs amount : ${bombs - accumulate(flag, true)}`);
+}
+
+// game-ender
+
+function stop_game() {
+    const grid = document.getElementById('grid');
+    for(let i = 0; i < sz; i++)
+        for(let j = 0; j < sz; j++) {
+            const cell = grid.children[i].children[j];
+            const ncell = cell.cloneNode(true);
+            if(mp[i][j]) ncell.innerText = bomb_image;
+            else color(cnt_bombs_around(i, j), ncell);
+            cell.parentNode.replaceChild(ncell, cell);
+        }
 }
 
 // small tool
@@ -92,19 +112,45 @@ function accumulate(arr, x) {
 
 //------ main-game-operation --------
 
+// end
+
+function make_play_again() {
+    const information = document.getElementById('information');
+    const button = document.createElement('button');
+    button.innerText = 'Play Again!';
+    button.className = 'play-again';
+    button.addEventListener('click', () => {
+        startgame();
+    });
+    information.append(button);
+}
+
+function lose() {
+    upd('Game over!', 'warning');
+    stop_game();
+    make_play_again();
+}
+
+function win() {
+    upd('You win!', 'success');
+    stop_game();
+    make_play_again();
+}
+
 // check
 
 function check() {
     const sum = accumulate(vis, true) + accumulate(flag, true);
-    if(sum === sz*sz) alert("you win!");
+    if(sum === sz*sz-bombs) win();
     if(debug) console.log(sum);
 }
 
 function toggleFlag(x, y, cell) {
     if(vis[x][y]) return;
-    cell.innerText = (flag[x][y] ? '' : '🚩');
+    cell.innerText = (flag[x][y] ? '' : flag_image);
     flag[x][y] = !flag[x][y];
     check();
+    upd(`grid size : ${sz}\n remaining bombs amount : ${bombs - accumulate(flag, true)}`);
 }
 
 // find-path-system
@@ -115,9 +161,7 @@ const dir2 = [[0, 1], [1, 0], [-1, 0], [0, -1]];
 function beclicked(x, y, cell){
     if(flag[x][y]) return;
     if(mp[x][y]) {
-        cell.innerText = '💣';
-        alert('Game over!');
-        startgame();
+        lose();
     } else {        
         const cnt = cnt_bombs_around(x, y);
         vis[x][y] = true;
@@ -178,6 +222,27 @@ function color(x, cell) {
 }
 
 //------ main-game-operation --------
+
+// update information div
+
+function upd(text, type = 'normal') {
+    const information = document.getElementById('information');
+    information.innerText = text;
+
+    if (type === 'warning') {
+        information.style.backgroundColor = '#f8d7da';
+        information.style.color = '#721c24';
+        information.style.borderColor = '#f5c6cb';
+    } else if (type === 'success') {
+        information.style.backgroundColor = '#d4edda';
+        information.style.color = '#155724';
+        information.style.borderColor = '#c3e6cb';
+    } else {
+        information.style.backgroundColor = '#ffffff';
+        information.style.color = '#495057';
+        information.style.borderColor = '#ced4da';
+    }
+}
 
 // main
 
