@@ -1,6 +1,6 @@
 // all const stuff
 
-const debug = 1; // 0 not debuging 1 is debuging
+const debug = 0; // 0 not debuging 1 is debuging
 
 let sz = 8;
 let bombs = 5;
