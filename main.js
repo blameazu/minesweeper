@@ -1,6 +1,6 @@
 // all const stuff
 
-const debug = 0; // 0 not debuging 1 is debuging
+const debug = 1; // 0 not debuging 1 is debuging
 
 let sz = 8;
 let bombs = 5;
@@ -12,6 +12,27 @@ const bomb_image = '💣';
 let mp;
 let vis;
 let flag;
+
+let now_timer = 0;
+let clock = null;
+
+let firstclick = true;
+
+// timer system
+
+function start_timer() {
+    stop_timer();
+    now_timer = 0;
+    clock = setInterval(function() {
+        const timer = document.getElementById('timer');
+        timer.innerText = `times : ${Math.floor(now_timer/60)}:${now_timer%60}`;
+        now_timer++;
+    }, 1000);
+}
+
+function stop_timer() {
+    clearInterval(clock);
+}
 
 // diff toggle system
 
@@ -25,6 +46,7 @@ const diff = document.getElementById('diff');
 diff.addEventListener('click', togglediff);
 
 function togglediff() {
+    stop_game();
     nowdiff = (nowdiff+1)%3;
     const now = diffsetting[nowdiff+1];
     diff.textContent = `${now.name}`;
@@ -59,12 +81,13 @@ function generate_map() {
     }
 }
 
-function place_bombs() {
+function place_bombs(i, j) {
     const grid = document.getElementById('grid');
     let now = 0;
     while(now < bombs) {
         const x = Math.floor(Math.random()*sz);
         const y = Math.floor(Math.random()*sz);
+        if(x === i && y === j) continue;
         if(mp[x][y] === 0) {
             mp[x][y] = 1;
             now++;
@@ -80,7 +103,7 @@ function startgame() {
     const grid = document.getElementById('grid');
     grid.innerHTML = '';
     generate_map();
-    place_bombs();
+    firstclick = true;
     if(debug) console.log('map :', mp);
     upd(`grid size : ${sz}\n remaining bombs amount : ${bombs - accumulate(flag, true)}`);
 }
@@ -97,6 +120,7 @@ function stop_game() {
             else color(cnt_bombs_around(i, j), ncell);
             cell.parentNode.replaceChild(ncell, cell);
         }
+    stop_timer();
 }
 
 // small tool
@@ -137,7 +161,7 @@ function win() {
 // check
 
 function check() {
-    const sum = accumulate(vis, true) + accumulate(flag, true);
+    const sum = accumulate(vis, true);
     if(sum === sz*sz-bombs) win();
     if(debug) console.log(sum);
 }
@@ -156,6 +180,11 @@ const dir = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 1], [1, -1], [1, 0], [1, 1
 const dir2 = [[0, 1], [1, 0], [-1, 0], [0, -1]];
 
 function beclicked(x, y, cell){
+    if(firstclick) {
+        start_timer();
+        firstclick = false;
+        place_bombs(x, y);
+    }
     if(flag[x][y]) return;
     if(mp[x][y]) {
         lose();

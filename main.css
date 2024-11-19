@@ -7,10 +7,10 @@ body {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    min-height: 100vh;
+    min-height: 10rem;
 }
 
-#main {
+div.main {
     flex: 1;
     padding: 20px;
     display: flex;
@@ -22,7 +22,6 @@ body {
 #diff-class {
     display: flex;
     align-items: center;
-    margin-bottom: 2em;
 }
 
 #diff-label {
@@ -43,10 +42,6 @@ body {
     font-size: 1rem;
     cursor: pointer;
     transition: background-color 0.3s ease;
-}
-
-#diff:hover {
-    background-color: #45a049;
 }
 
 h1 {
@@ -138,4 +133,28 @@ button.play-again:hover {
 
 button.play-again:active {
     transform: scale(0.95);
+}
+
+#timer {
+    position: fixed;
+    bottom: 150px;
+    right: 80px;
+    background-color: #ffffff;
+    color: #495057;
+    padding: 15px 20px;
+    border: 1px solid #ced4da;
+    border-radius: 8px;
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+    font-size: 1rem;
+    font-weight: bold;
+    max-width: 250px;
+    text-align: center;
+    z-index: 1000;
+    transition: all 0.3s ease;
+}
+
+#information:hover {
+    transform: scale(1.05);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
+    cursor: default;
 }
