@@ -88,10 +88,10 @@ function place_bombs(i, j) {
         const x = Math.floor(Math.random()*sz);
         const y = Math.floor(Math.random()*sz);
         if(x === i && y === j) continue;
-        if(mp[x][y] === 0) {
+        if(abs(x-i) <= 1 && abs(y-j) <= 1) continue;
+        if(!mp[x][y]) {
             mp[x][y] = 1;
             now++;
-            const cell = grid.children[x].children[y];
         }
     }
 }
@@ -105,7 +105,7 @@ function startgame() {
     generate_map();
     firstclick = true;
     if(debug) console.log('map :', mp);
-    upd(`grid size : ${sz}\n remaining bombs amount : ${bombs - accumulate(flag, true)}`);
+    upd(`grid size : ${sz}\n ${bomb_image} : ${bombs - accumulate(flag, true)} / ${bombs}`);
 }
 
 // game-ender
@@ -116,8 +116,8 @@ function stop_game() {
         for(let j = 0; j < sz; j++) {
             const cell = grid.children[i].children[j];
             const ncell = cell.cloneNode(true);
-            if(mp[i][j]) ncell.innerText = bomb_image;
-            else color(cnt_bombs_around(i, j), ncell);
+            if(mp[i][j] && !flag[i][j]) ncell.innerText = bomb_image;
+            else if(!mp[i][j]) color(cnt_around(i, j, mp, 1), ncell);
             cell.parentNode.replaceChild(ncell, cell);
         }
     stop_timer();
@@ -130,6 +130,8 @@ function accumulate(arr, x) {
         return re + now.filter(now2 => now2 === x).length;
     }, 0);
 }
+
+function abs(x) {return x >= 0 ? x : -x;}
 
 //------ main-game-operation --------
 
@@ -171,13 +173,33 @@ function toggleFlag(x, y, cell) {
     cell.innerText = (flag[x][y] ? '' : flag_image);
     flag[x][y] = !flag[x][y];
     check();
-    upd(`grid size : ${sz}\n remaining bombs amount : ${bombs - accumulate(flag, true)}`);
+    upd(`grid size : ${sz}\n ${flag_image} : ${bombs - accumulate(flag, true)} / ${bombs}`);
 }
 
-// find-path-system
+// clicked-system
+
+function open(x, y) {
+    const grid = document.getElementById('grid');
+    const cell = grid.children[x].children[y];
+    vis[x][y] = true;
+    const cnt = cnt_around(x, y, mp, 1);
+    color(cnt, cell);
+    if(!cnt) bfs(x, y);
+    check();
+}
 
 const dir = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 1], [1, -1], [1, 0], [1, 1]];
-const dir2 = [[0, 1], [1, 0], [-1, 0], [0, -1]];
+
+function cnt_around(x, y, arry, v) {
+    let re = 0;
+    for(let [dx, dy] of dir) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if(nx < 0 || nx >= sz || ny < 0 || ny >= sz) continue;
+        if(arry[nx][ny] == v) re++;
+    }
+    return re;
+}
 
 function beclicked(x, y, cell){
     if(firstclick) {
@@ -185,43 +207,39 @@ function beclicked(x, y, cell){
         firstclick = false;
         place_bombs(x, y);
     }
+    if(vis[x][y]) {
+        const fl = cnt_around(x, y, flag, true);
+        const cnt = cnt_around(x, y, mp, 1);
+        if(fl == cnt) {
+            for(const [dx, dy] of dir) {
+                const nx = x + dx;
+                const ny = y + dy;
+                if(nx < 0 || nx >= sz || ny < 0 || ny >= sz) continue;
+                if(flag[nx][ny]) continue;
+                if(mp[nx][ny]) lose();
+                else {
+                    open(nx, ny);
+                }
+            }
+        }
+        return;
+    }
     if(flag[x][y]) return;
-    if(mp[x][y]) {
-        lose();
-    } else {        
-        const cnt = cnt_bombs_around(x, y);
-        vis[x][y] = true;
-        color(cnt, cell);
-        if(!cnt) bfs(x, y);
-        check();
-    }
-}
-
-function cnt_bombs_around(x, y) {
-    let re = 0;
-    for(let [dx, dy] of dir) {
-        const nx = x + dx;
-        const ny = y + dy;
-        if(nx < 0 || nx >= sz || ny < 0 || ny >= sz) continue;
-        if(mp[nx][ny]) re++;
-    }
-    return re;
+    open(x, y);
+    if(mp[x][y]) lose();
 }
 
 function bfs(x, y) {
     const qq = [[x, y]];
     while(qq.length) {
         const [xx, yy] = qq.shift();
-        for(const [dx, dy] of dir2) {
+        for(const [dx, dy] of dir) {
             const nx = xx + dx;
             const ny = yy + dy;
             if(nx < 0 || nx >= sz || ny < 0 || ny >= sz) continue;
             if(vis[nx][ny]) continue;
-            vis[nx][ny] = true;
-            const cnt = cnt_bombs_around(nx, ny);
-            const grid = document.getElementById('grid');
-            color(cnt, grid.children[nx].children[ny]);
-            if(!cnt) {
+            open(nx, ny);
+            if(!cnt_around(nx, ny, mp, 1)) {
                 qq.push([nx, ny]);
             }
         }
