@@ -8,6 +8,13 @@
 * Basic Minesweeper functions
 
 * Difficulty selection system
+    * Easy $8 \times 8$ grids and $5$ bombs
+    * Medium $13 \times 13$ grids and $40$ bombs
+    * Hard $16 \times 16$ grids and $60$ bombs
+
+* Automatically expandsion
+
+* Flag toggle
 
 # How it works?
 
@@ -21,12 +28,12 @@
 
 # Screenshot
 
-![alt text](image.png)
+![alt text](pics/image.png)
 
-![alt text](image-1.png)
+![alt text](pics/image-1.png)
 
-![alt text](image-2.png)
+![alt text](pics/image-2.png)
 
-![alt text](image-4.png)
+![alt text](pics/image-4.png)
 
-![alt text](image-5.png)
+![alt text](pics/image-5.png)
