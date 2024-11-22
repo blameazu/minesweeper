@@ -1,7 +1,5 @@
 // all const stuff
 
-const debug = 0; // 0 not debuging 1 is debuging
-
 let sz = 8;
 let bombs = 5;
 let nowdiff = 0;
@@ -63,7 +61,6 @@ function generate_map() {
     grid.style.gridTemplateColumns = `repeat(${sz}, 40px)`;
     grid.innerHTML = '';
     for(let i = 0; i < sz; i++) {
-        const row = document.createElement('div');
         for(let j = 0; j < sz; j++) {
             const cell = document.createElement('button');
             cell.name = `cell-${i}-${j}`;
@@ -75,9 +72,8 @@ function generate_map() {
                 event.preventDefault();
                 toggleFlag(i, j, cell);
             });
-            row.appendChild(cell);
+            grid.appendChild(cell);
         }
-        grid.appendChild(row);
     }
 }
 
@@ -104,7 +100,6 @@ function startgame() {
     grid.innerHTML = '';
     generate_map();
     firstclick = true;
-    if(debug) console.log('map :', mp);
     upd(`grid size : ${sz}\n ${bomb_image} : ${bombs - accumulate(flag, true)} / ${bombs}`);
 }
 
@@ -114,7 +109,7 @@ function stop_game() {
     const grid = document.getElementById('grid');
     for(let i = 0; i < sz; i++)
         for(let j = 0; j < sz; j++) {
-            const cell = grid.children[i].children[j];
+            const cell = grid.children[i*sz+j];
             const ncell = cell.cloneNode(true);
             if(mp[i][j] && !flag[i][j]) ncell.innerText = bomb_image;
             else if(!mp[i][j]) color(cnt_around(i, j, mp, 1), ncell);
@@ -165,7 +160,6 @@ function win() {
 function check() {
     const sum = accumulate(vis, true);
     if(sum === sz*sz-bombs) win();
-    if(debug) console.log(sum);
 }
 
 function toggleFlag(x, y, cell) {
@@ -180,7 +174,7 @@ function toggleFlag(x, y, cell) {
 
 function open(x, y) {
     const grid = document.getElementById('grid');
-    const cell = grid.children[x].children[y];
+    const cell = grid.children[x*sz+y];
     vis[x][y] = true;
     const cnt = cnt_around(x, y, mp, 1);
     color(cnt, cell);
