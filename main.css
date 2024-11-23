@@ -159,3 +159,26 @@ button.play-again:active {
     box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
     cursor: default;
 }
+
+#scoreboard {
+    width: 300px;
+    margin: 20px auto;
+    padding: 10px;
+    background-color: #ffffff;
+    border: 1px solid #ced4da;
+    border-radius: 8px;
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+    font-size: 1rem;
+    color: #495057;
+}
+
+.score-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 5px 0;
+    border-bottom: 1px solid #dee2e6;
+}
+
+.score-item:last-child {
+    border-bottom: none;
+}

@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Blame's Minesweeper Web</title>
     <link rel="stylesheet" href="main.css">
+    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-app.js" type="module"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-database.js" type="module"></script>
 </head>
 <body>
     <div class="main">
@@ -17,6 +19,9 @@
     </div>
     <div id="information"></div>
     <div id="timer">times : 00:00s</div>
-    <script src="main.js"></script>
+    <div id="scoreboard" class="scoreboard"></div>
+    <script src="main.js" type="module"></script>
+    <script src="scoreboard.js" type="module"></script>
+    
 </body>
 </html>

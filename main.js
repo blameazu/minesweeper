@@ -1,5 +1,7 @@
 // all const stuff
 
+import { writeScore } from "./scoreboard.js";
+
 let sz = 8;
 let bombs = 5;
 let nowdiff = 0;
@@ -151,6 +153,7 @@ function lose() {
 
 function win() {
     upd('You win!', 'success');
+    writeScore('annoymous', diffsetting[nowdiff+1].name, now_timer);
     stop_game();
     make_play_again();
 }
