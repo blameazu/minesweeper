@@ -27,7 +27,7 @@ async function write(name = 'annoymous', diff, time) {
             diff: diff,
             time: time
         });
-        load();
+        load(diff);
     }
 }
 
