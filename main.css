@@ -1,3 +1,4 @@
+/* basic */
 body {
     font-family: Arial, Helvetica, sans-serif;
     background-color: #f8f9fa;
@@ -19,6 +20,7 @@ div.main {
     justify-content: center;
 }
 
+/* diff system */
 #diff-class {
     display: flex;
     align-items: center;
@@ -44,56 +46,127 @@ div.main {
     transition: background-color 0.3s ease;
 }
 
+#diff.easy {
+    background-color: #4CAF50;
+}
+
+#diff.medium {
+    background-color: #FFC107;
+}
+
+#diff.hard {
+    background-color: #DC3545;
+}
+
+#diff:hover {
+    opacity: 0.9;
+}
+
+/* minesweeper title */
 h1 {
     color: #343a40;
     margin-bottom: 20px;
     text-shadow: 2px 2px 5px rgba(0, 0, 0, 0.2);
 }
 
+/* map */
 #grid {
     display: grid;
-    grid-template-columns: repeat(16, 40px);
     background-color: #ced4da;
     padding: 10px;
     border-radius: 10px;
     align-content: center;
     box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+    
+    button {
+        width: 30px;
+        height: 30px;
+        margin: 2px;
+        background-color: #e9ecef;
+        border: 1px solid #adb5bd;
+        border-radius: 5px;
+        font-size: 16px;
+        font-weight: bold;
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+
+    button:active {
+        background-color: #dee2e6;
+        transform: scale(0.95);
+    }
+
+    button:hover {
+        background-color: #f8f9fa;
+        border-color: #868e96;
+    }
 }
 
-button.grid-button {
-    width: 30px;
-    height: 30px;
-    margin: 2px;
-    background-color: #e9ecef;
-    border: 1px solid #adb5bd;
-    border-radius: 5px;
-    font-size: 16px;
-    font-weight: bold;
-    color: #495057;
-    cursor: pointer;
-    transition: all 0.3s ease;
+#grid 
+
+/*  */
+
+#grid 
+
+/* 數字顯示的樣式 */
+.cell-0 {
+    background-color: #dee2e6; /* 已打開空白格 */
+    /* color: transparent; 沒有數字 */
+    /* cursor: default; */
 }
 
-button.grid-button:active {
+.cell-1 {
     background-color: #dee2e6;
-    transform: scale(0.95);
+    color: #007bff; /* 藍色 */
+    font-weight: bold;
 }
 
-button.grid-button:hover {
-    background-color: #f8f9fa;
-    border-color: #868e96;
+.cell-2 {
+    background-color: #dee2e6;
+    color: #28a745; /* 綠色 */
+    font-weight: bold;
 }
 
-button.grid-button.clicked {
-    background-color: #6c757d;
-    color: white;
-    cursor: default;
+.cell-3 {
+    background-color: #dee2e6;
+    color: #dc3545; /* 紅色 */
+    font-weight: bold;
 }
 
+.cell-4 {
+    background-color: #dee2e6;
+    color: #6f42c1; /* 紫色 */
+    font-weight: bold;
+}
+
+.cell-5 {
+    background-color: #dee2e6;
+    color: #fd7e14; /* 橘色 */
+    font-weight: bold;
+}
+
+.cell-6 {
+    background-color: #dee2e6;
+    color: #20c997; /* 藍綠色 */
+    font-weight: bold;
+}
+
+.cell-7 {
+    background-color: #dee2e6;
+    color: #343a40; /* 深灰色 */
+    font-weight: bold;
+}
+
+.cell-8 {
+    background-color: #dee2e6;
+    color: #212529; /* 黑色 */
+    font-weight: bold;
+}
+
+
+/* information */
 #information {
-    position: fixed;
-    bottom: 20px;
-    right: 20px;
+    position: relative; /* 相對於父容器 */
     background-color: #ffffff;
     color: #495057;
     padding: 15px 20px;
@@ -114,32 +187,9 @@ button.grid-button.clicked {
     cursor: default;
 }
 
-button.play-again {
-    margin: 10px auto;
-    width: 200px;
-    height: 40px;
-    background-color: gold;
-    color: white;
-    border: none;
-    border-radius: 5px;
-    font-size: 1rem;
-    font-weight: bold;
-    cursor: pointer;
-    transition: background-color 0.3s ease, transform 0.2s ease;
-}
-
-button.play-again:hover {
-    background-color: darkgoldenrod;
-}
-
-button.play-again:active {
-    transform: scale(0.95);
-}
-
-#timer {
-    position: fixed;
-    bottom: 150px;
-    right: 80px;
+/* timer */
+#time {
+    position: relative; /* 相對於父容器 */
     background-color: #ffffff;
     color: #495057;
     padding: 15px 20px;
@@ -152,17 +202,15 @@ button.play-again:active {
     text-align: center;
     z-index: 1000;
     transition: all 0.3s ease;
+    top: 10px;
+    left: 0;
 }
 
-#information:hover {
-    transform: scale(1.05);
-    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
-    cursor: default;
-}
-
+/* scoreboard */
 #scoreboard {
+    position: relative; /* 相對於父容器 */
     width: 300px;
-    margin: 20px auto;
+    margin: 20px auto 0 auto; /* 自動居中 */
     padding: 10px;
     background-color: #ffffff;
     border: 1px solid #ced4da;
@@ -181,4 +229,30 @@ button.play-again:active {
 
 .score-item:last-child {
     border-bottom: none;
+}
+
+/* play-again */
+#play-again {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    margin: 10px auto;
+    width: 200px;
+    height: 40px;
+    background-color: gold;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    font-size: 1rem;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background-color 0.3s ease, transform 0.2s ease;
+}
+
+#play-again:hover {
+    background-color: darkgoldenrod;
+}
+
+#play-again:active {
+    transform: scale(0.95);
 }

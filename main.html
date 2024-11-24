@@ -14,14 +14,13 @@
         <div id="grid"></div>
         <div id="diff-class">
             <span id="diff-label">Difficulty: </span>
-            <button id="diff">Easy</button>
+            <button id="diff" onclick="togglediff()">Easy</button>
         </div>
     </div>
     <div id="information"></div>
-    <div id="timer">times : 00:00s</div>
+    <button id="play-again" onclick="reload()">Play again</button>
+    <div id="time">times : 00:00s</div>
     <div id="scoreboard" class="scoreboard"></div>
-    <script src="main.js" type="module"></script>
-    <script src="scoreboard.js" type="module"></script>
-    
+    <script src="/javascript/game.js" type="module"></script>
 </body>
 </html>
