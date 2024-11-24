@@ -24,6 +24,7 @@ div.main {
 #diff-class {
     display: flex;
     align-items: center;
+    align-content: center;
 }
 
 #diff-label {
@@ -60,6 +61,26 @@ div.main {
 
 #diff:hover {
     opacity: 0.9;
+}
+
+/* toggle button */
+#togglemode {
+    margin: 20px;
+    width: 40px;
+    height: 40px;
+    padding: 0.5em 1em;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+    
+}
+
+#togglemode:hover {
+    background-color: #0056b3;
 }
 
 /* minesweeper title */

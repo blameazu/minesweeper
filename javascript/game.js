@@ -5,8 +5,17 @@ let size = 0, bombs = 0, first_click = true;
 
 let mp, vis, flag;
 
+let mode;
+
 const flag_image = '🚩';
 const bomb_image = '💣';
+
+/* toggle flag and open system */
+    function togglemode() {
+        mode = !mode;
+        document.getElementById('togglemode').innerText = (mode ? flag_image : "🧑‍🦯‍➡️");
+    }
+/* toggle flag and open system */
 
 /* diff system */
     const diff_button = document.getElementById('diff');
@@ -24,6 +33,7 @@ const bomb_image = '💣';
 
 /* initializing map system */
     function pre() {
+        mode = 0;
         size = diffsetting[now_diff].size;
         bombs = diffsetting[now_diff].bombs;
         diff_button.classList = diffsetting[now_diff].name.toLowerCase();
@@ -138,6 +148,7 @@ const bomb_image = '💣';
         check();
     }
     function clicked(x, y) {
+        if(mode) {toggleflag(x, y); return;}
         if(flag[x][y]) return;
         if(mp[x][y]) {
             lose();
@@ -230,6 +241,7 @@ const bomb_image = '💣';
 /* export */
 window.togglediff = togglediff;
 window.reload = reload;
+window.togglemode = togglemode;
 /* export */
 
 reload();
