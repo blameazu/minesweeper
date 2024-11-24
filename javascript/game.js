@@ -193,12 +193,13 @@ const bomb_image = '💣';
         upd('You lost!', 'warning');
     }
     async function win() {
-        const msg = `It seems that you have beated the game with difficulty ${diffsetting[now_diff].name}!\n I want to told you that you are very billiant!\n And I want to write down on the scoreboard!\n please sign down your name in following text!\n`;
+        const msg = `It seems that you have beated the game with difficulty ${diffsetting[now_diff].name}!\n I want to told you that you are very billiant!\n And I want to write down on the scoreboard!\n please sign down your name in following text!\nbtw : the name should only contain spaces or alphas or digits, others will not be accepted\n`;
         end();
-        const timer = get_timer();
         upd('You won!', 'success');
         await sleep(200);
-        const name = prompt(msg, "annoymous user");
+        const name = prompt(msg, "Enter your name here");
+        const timer = get_timer();
+        if(!name) name = "Anonymous user";
         write(name, diffsetting[now_diff].name, timer);
     }
 /* game-stop */

@@ -46,9 +46,9 @@ function load(diff) {
             return acc;
         }, {});
 
-        const difficultyTitle = document.createElement("h3");
-        difficultyTitle.textContent = `Difficulty: ${diff}`;
-        board.appendChild(difficultyTitle);
+        const title = document.createElement("h3");
+        title.textContent = `Difficulty: ${diff}`;
+        board.appendChild(title);
 
         const sortedScores = gd[diff].sort((a, b) => a.time - b.time);
 
