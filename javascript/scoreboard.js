@@ -21,7 +21,7 @@ async function write(name = 'annoymous', diff, time) {
     const db = ref(database, "scoreboard/" + name + diff);
     const tmp = await get(db);
     const data = tmp.exists() ? tmp.val() : null;
-    if(!data || data.time > time) {
+    if (!data || data.time > time) {
         await set(db, {
             name: name,
             diff: diff,
@@ -31,24 +31,38 @@ async function write(name = 'annoymous', diff, time) {
     }
 }
 
-function load() {
+function load(diff) {
     const db = ref(database, "scoreboard/");
-    onValue(db, (snapshot) => {
-        const data = snapshot.val();
+    onValue(db, (tmp) => {
+        const data = tmp.val();
         const board = document.getElementById("scoreboard");
         board.innerHTML = "";
 
-        const sortedData = Object.values(data)
-            .sort((a, b) => a.time - b.time);
+        const gd = Object.values(data).reduce((acc, player) => {
+            if (!acc[player.diff]) {
+                acc[player.diff] = [];
+            }
+            acc[player.diff].push(player);
+            return acc;
+        }, {});
 
-        sortedData.forEach(player => {
+        const difficultyTitle = document.createElement("h3");
+        difficultyTitle.textContent = `Difficulty: ${diff}`;
+        board.appendChild(difficultyTitle);
+
+        const sortedScores = gd[diff].sort((a, b) => a.time - b.time);
+
+        let rank = 0;
+        sortedScores.forEach(player => {
             const score = document.createElement("div");
-            score.textContent = `${player.diff} - ${player.name}: ${player.time}s`;
+            score.textContent = `${++rank} ${player.name}: ${player.time}s`;
+            if(rank === 1) score.style.backgroundColor = "gold";
+            else if(rank === 2) score.style.backgroundColor = "#a1a1a1";
+            else if(rank === 3) score.style.backgroundColor = "orange";
+            else score.style.backgroundColor = "#ebebeb";
             board.appendChild(score);
         });
     });
 }
 
-export {write, load};
-
-load();
+export { write, load };

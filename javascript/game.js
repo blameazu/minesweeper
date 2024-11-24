@@ -58,7 +58,7 @@ const bomb_image = '💣';
         }
     }
     function reload() {
-        load();
+        load(diffsetting[now_diff].name);
         stop_timer();
         pre();
         map_generating();
@@ -181,10 +181,14 @@ const bomb_image = '💣';
         end();
         upd('You lost!', 'warning');
     }
-    function win() {
-        write('annoymous', diffsetting[now_diff].name, get_timer());
+    async function win() {
+        const msg = `It seems that you have beated the game with difficulty ${diffsetting[now_diff].name}!\n I want to told you that you are very billiant!\n And I want to write down on the scoreboard!\n please sign down your name in following text!\n`;
         end();
+        const timer = get_timer();
         upd('You won!', 'success');
+        await sleep(200);
+        const name = prompt(msg, "annoymous user");
+        write(name, diffsetting[now_diff].name, timer);
     }
 /* game-stop */
 
@@ -215,11 +219,17 @@ const bomb_image = '💣';
     }
 /* information sectoin */
 
+/* sleep */
+    function sleep(time) {
+        return new Promise(re => {
+            setTimeout(() => {re();}, time);
+        });
+    }
+/* sleep */
+
 /* export */
 window.togglediff = togglediff;
 window.reload = reload;
 /* export */
-
-console.log('game.js loaded');
 
 reload();

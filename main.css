@@ -108,65 +108,65 @@ h1 {
 
 #grid 
 
-/* 數字顯示的樣式 */
+/* cell-open */
 .cell-0 {
-    background-color: #dee2e6; /* 已打開空白格 */
-    /* color: transparent; 沒有數字 */
-    /* cursor: default; */
+    background-color: #dee2e6;
+    color: transparent;
+    cursor: default;
 }
 
 .cell-1 {
     background-color: #dee2e6;
-    color: #007bff; /* 藍色 */
+    color: #007bff;
     font-weight: bold;
 }
 
 .cell-2 {
     background-color: #dee2e6;
-    color: #28a745; /* 綠色 */
+    color: #28a745;
     font-weight: bold;
 }
 
 .cell-3 {
     background-color: #dee2e6;
-    color: #dc3545; /* 紅色 */
+    color: #dc3545;
     font-weight: bold;
 }
 
 .cell-4 {
     background-color: #dee2e6;
-    color: #6f42c1; /* 紫色 */
+    color: #6f42c1;
     font-weight: bold;
 }
 
 .cell-5 {
     background-color: #dee2e6;
-    color: #fd7e14; /* 橘色 */
+    color: #fd7e14;
     font-weight: bold;
 }
 
 .cell-6 {
     background-color: #dee2e6;
-    color: #20c997; /* 藍綠色 */
+    color: #20c997;
     font-weight: bold;
 }
 
 .cell-7 {
     background-color: #dee2e6;
-    color: #343a40; /* 深灰色 */
+    color: #343a40;
     font-weight: bold;
 }
 
 .cell-8 {
     background-color: #dee2e6;
-    color: #212529; /* 黑色 */
+    color: #212529;
     font-weight: bold;
 }
 
 
 /* information */
 #information {
-    position: relative; /* 相對於父容器 */
+    position: relative;
     background-color: #ffffff;
     color: #495057;
     padding: 15px 20px;
@@ -189,7 +189,7 @@ h1 {
 
 /* timer */
 #time {
-    position: relative; /* 相對於父容器 */
+    position: relative;
     background-color: #ffffff;
     color: #495057;
     padding: 15px 20px;
@@ -208,9 +208,9 @@ h1 {
 
 /* scoreboard */
 #scoreboard {
-    position: relative; /* 相對於父容器 */
+    position: relative;
     width: 300px;
-    margin: 20px auto 0 auto; /* 自動居中 */
+    margin: 20px auto 0 auto;
     padding: 10px;
     background-color: #ffffff;
     border: 1px solid #ced4da;
@@ -233,10 +233,8 @@ h1 {
 
 /* play-again */
 #play-again {
-    position: fixed;
-    bottom: 20px;
-    right: 20px;
-    margin: 10px auto;
+    position: relative;
+    margin: 30px auto;
     width: 200px;
     height: 40px;
     background-color: gold;
