@@ -47,6 +47,13 @@ const bomb_image = '💣';
         grid.addEventListener('contextmenu', (event) => {
             event.preventDefault();
         });
+
+        /* prevent user from reloading the page during gameplay */
+        window.onbeforeunload = function() {
+            if (!first_click) {
+                return 'Are you sure you want to leave the game ?';
+            }
+        }
     }
     function map_generating() {
         const grid = document.getElementById('grid');
@@ -178,6 +185,8 @@ const bomb_image = '💣';
 
 /* game-stop */
     function end() {
+        window.onbeforeunload = function () {};
+
         stop_timer();
         const grid = document.getElementById('grid');
         for(let i = 0; i < size; i++)
