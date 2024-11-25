@@ -46,14 +46,21 @@ function load(diff) {
             return acc;
         }, {});
 
+        if (!gd[diff]) {
+            const message = document.createElement("h3");
+            message.textContent = "No scores available yet!";
+            board.appendChild(message);
+            return;
+        }
+
         const title = document.createElement("h3");
         title.textContent = `Difficulty: ${diff}`;
         board.appendChild(title);
 
-        const sortedScores = gd[diff].sort((a, b) => a.time - b.time);
+        const sortdata = gd[diff].sort((a, b) => a.time - b.time);
 
         let rank = 0;
-        sortedScores.forEach(player => {
+        sortdata.forEach(player => {
             const score = document.createElement("div");
             score.textContent = `${++rank} ${player.name}: ${player.time}s`;
             if(rank === 1) score.style.backgroundColor = "gold";

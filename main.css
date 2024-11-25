@@ -59,6 +59,10 @@ div.main {
     background-color: #DC3545;
 }
 
+#diff.hell {
+    background-color: black;
+}
+
 #diff:hover {
     opacity: 0.9;
 }

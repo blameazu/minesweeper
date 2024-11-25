@@ -23,10 +23,11 @@ const bomb_image = '💣';
     const diffsetting = [
         {name : "Easy", size : 8, bombs : 5},
         {name : "Medium", size : 13, bombs : 30},
-        {name : "Hard", size :16, bombs : 60}
+        {name : "Hard", size :16, bombs : 60},
+        {name : "Hell", size : 30, bombs : 500}
     ];
     function togglediff() {
-        now_diff = (now_diff+1)%3;
+        now_diff = (now_diff+1)%4;
         reload();
     }
 /* diff system */
@@ -61,7 +62,7 @@ const bomb_image = '💣';
                 });
                 cell.addEventListener('contextmenu', (event) => {
                     event.preventDefault();
-                    cell.onclick = toggleflag(i, j);
+                    toggleflag(i, j);
                 });
                 grid.appendChild(cell);
             }
