@@ -24,7 +24,7 @@ const bomb_image = '💣';
         {name : "Easy", size : 8, bombs : 5},
         {name : "Medium", size : 13, bombs : 30},
         {name : "Hard", size :16, bombs : 60},
-        {name : "Hell", size : 30, bombs : 500}
+        {name : "Hell", size : 30, bombs : 350}
     ];
     function togglediff() {
         now_diff = (now_diff+1)%4;

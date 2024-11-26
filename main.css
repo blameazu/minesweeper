@@ -279,3 +279,24 @@ h1 {
 #play-again:active {
     transform: scale(0.95);
 }
+
+@keyframes glow {
+    0% {
+        text-shadow: 0 0 5px gold, 0 0 10px gold, 0 0 15px gold, 0 0 20px gold;
+    }
+    100% {
+        text-shadow: 0 0 10px gold, 0 0 20px gold, 0 0 30px gold, 0 0 40px gold;
+    }
+}
+
+@keyframes float {
+    0% {
+        transform: translateY(-50%) translateX(0);
+    }
+    50% {
+        transform: translateY(-50%) translateX(3px);
+    }
+    100% {
+        transform: translateY(-50%) translateX(0);
+    }
+}
