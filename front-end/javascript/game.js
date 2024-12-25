@@ -1,5 +1,5 @@
 import { start_timer, stop_timer, get_timer } from "./clock.js";
-import { write, load } from "./scoreboard.js";
+import { save_record, scoreboard_load } from "./main.js";
 
 let size = 0, bombs = 0, first_click = true;
 
@@ -76,7 +76,7 @@ const bomb_image = '💣';
         }
     }
     function reload() {
-        load(diffsetting[now_diff].name);
+        scoreboard_load(diffsetting[now_diff].name);
         stop_timer();
         pre();
         map_generating();
@@ -192,9 +192,9 @@ const bomb_image = '💣';
         for(let i = 0; i < size; i++)
             for(let j = 0; j < size; j++) {
                 const cell = grid.children[i*size+j];
-                const ncell = cell.cloneNode(true);
-                if(mp[i][j] && !flag[i][j]) ncell.innerText = bomb_image;
+                if(mp[i][j] && !flag[i][j]) cell.innerText = bomb_image;
                 else if(!mp[i][j]) display(i, j);
+                const ncell = cell.cloneNode(true);
                 cell.parentNode.replaceChild(ncell, cell);
             }
     }
@@ -210,7 +210,7 @@ const bomb_image = '💣';
         const name = prompt(msg, "Enter your name here");
         const timer = get_timer();
         if(!name) name = "Anonymous user";
-        write(name, diffsetting[now_diff].name, timer);
+        save_record(name, timer, diffsetting[now_diff].name);
     }
 /* game-stop */
 

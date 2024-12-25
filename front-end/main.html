@@ -5,24 +5,23 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Blame's Minesweeper Web</title>
     <link rel="stylesheet" href="main.css">
-    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-app.js" type="module"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-database.js" type="module"></script>
 </head>
 <body>
     <div class="main">
-        <h1>Minesweeper</h1>
+        <h1 id = "title">Minesweeper</h1>
         <div id="grid"></div>
         <div id="diff-class">
             <span id="diff-label">Difficulty: </span>
             <button id="diff" onclick="togglediff()">Easy</button>
             <button id="togglemode" onclick="togglemode()">🧑‍🦯‍➡️</button>
         </div>
-        
     </div>
     <div id="information"></div>
     <div id="time">times : 00:00s</div>
     <button id="play-again" onclick="reload()">Play again</button>
     <div id="scoreboard" class="scoreboard"></div>
+    <p id = "test"></p>
     <script src="./javascript/game.js" type="module"></script>
+    <script src="./javascript/main.js" type="module"></script>
 </body>
 </html>
