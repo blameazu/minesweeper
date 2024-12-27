@@ -1,2 +1,2 @@
-minesweeper.db
-__pycache__
+*.db
+back-end/__pycache__
