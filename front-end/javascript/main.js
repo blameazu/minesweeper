@@ -2,7 +2,7 @@
     valuable
 */
 
-const back_end_url = 'http://127.0.0.1:8000/';
+const back_end_url = 'https://minesweeper-cnik.onrender.com/';
 
 /*
     front-end with back-end 's interactitions

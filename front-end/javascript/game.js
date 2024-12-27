@@ -211,6 +211,8 @@ const bomb_image = '💣';
         const timer = get_timer();
         if(!name) name = "Anonymous user";
         save_record(name, timer, diffsetting[now_diff].name);
+        await sleep(200);
+        scoreboard_load(diffsetting[now_diff].name);
     }
 /* game-stop */
 
