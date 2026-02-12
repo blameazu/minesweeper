@@ -57,17 +57,6 @@ function App() {
   }, [mode, board.startedAt, board.endedAt, vsState?.status]);
 
   useEffect(() => {
-    if (mode !== "versus") return;
-    if (!vsState || vsState.status !== "active") return;
-    if (preStartLeft && preStartLeft > 0) return;
-    useGameStore.setState((state) => {
-      const startedAt = state.board.startedAt ?? Date.now();
-      const status = state.board.status === "idle" ? "playing" : state.board.status;
-      return { board: { ...state.board, startedAt, status } };
-    });
-  }, [mode, vsState, preStartLeft]);
-
-  useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
   }, [theme]);
 
@@ -106,6 +95,17 @@ function App() {
     const anchor = Math.max(now, startMs); // do not count down before start
     return Math.max(0, Math.floor((endMs - anchor) / 1000));
   }, [vsState?.started_at, vsState?.countdown_secs, now]);
+
+  useEffect(() => {
+    if (mode !== "versus") return;
+    if (!vsState || vsState.status !== "active") return;
+    if (preStartLeft && preStartLeft > 0) return;
+    useGameStore.setState((state) => {
+      const startedAt = state.board.startedAt ?? Date.now();
+      const status = state.board.status === "idle" ? "playing" : state.board.status;
+      return { board: { ...state.board, startedAt, status } };
+    });
+  }, [mode, vsState, preStartLeft]);
 
   const loadLeaderboard = async (difficulty: DifficultyKey) => {
     try {
