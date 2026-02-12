@@ -1,11 +1,14 @@
-# Node
+# Node / frontend
 node_modules/
 dist/
+frontend/dist/
 .tmp/
 .vite/
 .DS_Store
+.env.local
+.env.production
 
-# Python
+# Python / backend
 __pycache__/
 *.pyc
 *.pyo
@@ -13,11 +16,15 @@ __pycache__/
 .env
 .venv/
 venv/
+backend/.venv-wsl/
+backend/.venv/
 .db
 .sqlite
+backend/mine*.db
 
-# VS Code
+# Editors / IDE
 .vscode/
+.idea/
 
 # Logs
 *.log
