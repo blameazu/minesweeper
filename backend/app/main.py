@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import get_settings
 from .db import init_db
-from .routes import leaderboard
+from .routes import leaderboard, match
 
 settings = get_settings()
 
@@ -18,6 +18,7 @@ app.add_middleware(
 )
 
 app.include_router(leaderboard.router)
+app.include_router(match.router)
 
 
 @app.on_event("startup")

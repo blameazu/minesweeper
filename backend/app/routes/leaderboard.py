@@ -12,7 +12,7 @@ router = APIRouter(prefix="/api/leaderboard", tags=["leaderboard"])
 async def list_leaderboard(
     difficulty: str = Query(..., description="beginner/intermediate/expert/custom"),
     session: Session = Depends(get_session),
-    limit: int = Query(20, ge=1, le=100)
+    limit: int = Query(10, ge=1, le=10)
 ):
     stmt = (
         select(LeaderboardEntry)

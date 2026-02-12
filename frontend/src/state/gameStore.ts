@@ -4,8 +4,8 @@ import { createEmptyState, reveal, toggleFlag, chordReveal } from "../lib/engine
 
 interface GameStore {
   board: BoardState;
-  setDifficulty: (difficulty: DifficultyKey, opts?: { width?: number; height?: number; mines?: number }) => void;
-  startFresh: (opts?: { width?: number; height?: number; mines?: number }) => void;
+  setDifficulty: (difficulty: DifficultyKey, opts?: { width?: number; height?: number; mines?: number; seed?: string }) => void;
+  startFresh: (opts?: { width?: number; height?: number; mines?: number; seed?: string }) => void;
   revealCell: (x: number, y: number) => void;
   toggleFlag: (x: number, y: number) => void;
   chordCell: (x: number, y: number) => void;

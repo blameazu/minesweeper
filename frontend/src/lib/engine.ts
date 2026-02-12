@@ -199,7 +199,10 @@ export const remainingMines = (state: BoardState) => {
   return Math.max(state.mines - flagged, 0);
 };
 
-export const createEmptyState = (difficulty: DifficultyKey, opts?: { width?: number; height?: number; mines?: number }) => {
+export const createEmptyState = (
+  difficulty: DifficultyKey,
+  opts?: { width?: number; height?: number; mines?: number; seed?: string }
+) => {
   const board = createBoard(difficulty, opts);
   const state: BoardState = {
     width: board.width,
