@@ -2,11 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import { Board } from "./components/Board";
 import { useGameStore } from "./state/gameStore";
 import { difficultiesList, remainingMines } from "./lib/engine";
-import type { DifficultyKey, LeaderboardEntry, MatchSession, MatchState, MatchProgress, BoardState } from "./types";
+import type { DifficultyKey, LeaderboardEntry, MatchSession, MatchState, MatchProgress, BoardState, RecentMatch } from "./types";
 import {
   createMatch,
   fetchLeaderboard,
   fetchMatchState,
+  fetchRecentMatches,
   finishMatch,
   joinMatch,
   setReady,
@@ -44,6 +45,8 @@ function App() {
   const [joinId, setJoinId] = useState("");
   const [vsStepCount, setVsStepCount] = useState(0);
   const [vsProgressUploaded, setVsProgressUploaded] = useState(false);
+  const [recentMatches, setRecentMatches] = useState<RecentMatch[]>([]);
+  const [recentError, setRecentError] = useState<string | null>(null);
 
   useEffect(() => {
     const shouldTick = (board.startedAt && !board.endedAt) || (mode === "versus" && vsState?.status === "active");
@@ -125,6 +128,28 @@ function App() {
       clearInterval(id);
     };
   }, [mode, vsMatch?.matchId]);
+
+  useEffect(() => {
+    if (mode !== "versus") return;
+    let cancelled = false;
+    const loadRecent = async () => {
+      try {
+        const data = await fetchRecentMatches();
+        if (!cancelled) {
+          setRecentMatches(data);
+          setRecentError(null);
+        }
+      } catch (e) {
+        if (!cancelled) setRecentError(e instanceof Error ? e.message : "讀取最近對戰失敗");
+      }
+    };
+    loadRecent();
+    const id = setInterval(loadRecent, 10000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [mode]);
 
   useEffect(() => {
     if (!vsMatch || !vsState) return;
@@ -288,7 +313,7 @@ function App() {
           steps_count: vsStepCount,
           progress: { board: current }
         });
-        setVsMatch({ ...vsMatch, status: current.status === "won" ? "finished" : vsMatch.status });
+        setVsMatch({ ...vsMatch, status: "finished" });
         setVsInfo(current.status === "won" ? "你完成了！" : "你踩雷了");
       } catch (e) {
         setVsError(e instanceof Error ? e.message : "結束對局失敗");
@@ -357,7 +382,7 @@ function App() {
       <header className="flex items-baseline justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">踩地雷</h1>
-          <p className="text-sm opacity-80">{mode === "solo" ? "單人模式（首擊保護）" : "對戰模式（同圖同步）"}</p>
+          <p className="text-sm opacity-80">{mode === "solo" ? "單人模式（首擊保護）" : "對戰模式（同圖同步／踩雷即敗）"}</p>
         </div>
         <div className="flex gap-2 items-center">
           <button
@@ -545,6 +570,42 @@ function App() {
                       {myPlayer?.ready ? "已準備" : "我已準備"}
                     </button>
                   </div>
+                )}
+              </div>
+
+              <div className="bg-[var(--surface)] rounded-xl border border-[var(--border)] shadow p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-semibold">最近 10 場</h2>
+                  <span className="text-xs opacity-70">含進行中</span>
+                </div>
+                {recentError ? (
+                  <p className="text-sm text-red-600">{recentError}</p>
+                ) : recentMatches.length === 0 ? (
+                  <p className="text-sm opacity-70">暫無紀錄</p>
+                ) : (
+                  <ol className="space-y-2 text-sm">
+                    {recentMatches.map((m) => (
+                      <li key={m.match_id} className="border border-[var(--border)] rounded-lg px-3 py-2 bg-[var(--surface-strong)]">
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold">#{m.match_id}</span>
+                          <span className="opacity-70">{m.status}</span>
+                        </div>
+                        <div className="text-xs opacity-80">
+                          {m.width}x{m.height} / {m.mines} 雷
+                        </div>
+                        <div className="flex flex-wrap gap-2 mt-1">
+                          {m.players.map((p, idx) => (
+                            <span
+                              key={`${m.match_id}-${idx}-${p.name}`}
+                              className="px-2 py-1 rounded-full text-xs border border-[var(--border)] bg-[var(--surface)]"
+                            >
+                              {p.name}：{p.result ?? "進行中"}
+                            </span>
+                          ))}
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
                 )}
               </div>
 

@@ -93,3 +93,20 @@ export interface MatchSession {
   status: string;
   countdown_secs?: number;
 }
+
+export interface RecentMatchPlayer {
+  name: string;
+  result?: string | null;
+}
+
+export interface RecentMatch {
+  match_id: number;
+  status: string;
+  created_at: string;
+  ended_at?: string | null;
+  difficulty?: string | null;
+  width: number;
+  height: number;
+  mines: number;
+  players: RecentMatchPlayer[];
+}

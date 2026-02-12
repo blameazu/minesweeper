@@ -1,4 +1,4 @@
-import type { DifficultyKey, LeaderboardEntry, MatchBoard, MatchSession, MatchState, MatchStep } from "../types";
+import type { DifficultyKey, LeaderboardEntry, MatchBoard, MatchSession, MatchState, MatchStep, RecentMatch } from "../types";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
 const NGROK_HEADER = { "ngrok-skip-browser-warning": "true" };
@@ -145,5 +145,11 @@ export const setReady = async (matchId: number, params: { playerToken: string; r
 export const fetchMatchSteps = async (matchId: number): Promise<MatchStep[]> => {
   const res = await fetch(`${API_BASE}/api/match/${matchId}/steps`, { headers: { ...NGROK_HEADER } });
   if (!res.ok) throw new Error(`讀取步驟失敗 (${res.status})`);
+  return res.json();
+};
+
+export const fetchRecentMatches = async (): Promise<RecentMatch[]> => {
+  const res = await fetch(`${API_BASE}/api/match/recent`, { headers: { ...NGROK_HEADER } });
+  if (!res.ok) throw new Error(`讀取最近對戰失敗 (${res.status})`);
   return res.json();
 };

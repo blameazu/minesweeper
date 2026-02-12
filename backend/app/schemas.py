@@ -123,3 +123,20 @@ class MatchHistoryItem(BaseModel):
     duration_ms: Optional[int]
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class RecentMatchPlayer(BaseModel):
+    name: str
+    result: Optional[str]
+
+
+class RecentMatch(BaseModel):
+    match_id: int
+    status: str
+    created_at: datetime
+    ended_at: Optional[datetime]
+    difficulty: Optional[str]
+    width: int
+    height: int
+    mines: int
+    players: list[RecentMatchPlayer]

@@ -19,6 +19,8 @@ from ..schemas import (
     MatchStepCreate,
     MatchStepRead,
     MatchReady,
+    RecentMatch,
+    RecentMatchPlayer,
 )
 
 router = APIRouter(prefix="/api/match", tags=["match"])
@@ -249,6 +251,13 @@ async def finish_match(match_id: int, payload: MatchFinish, session: Session = D
             if not op.result:
                 op.result = "lose"
                 op.finished_at = now
+    elif payload.outcome == "lose":
+        match.status = MatchStatus.finished
+        match.ended_at = now
+        for op in other_players:
+            if not op.result:
+                op.result = "win"
+                op.finished_at = now
     else:
         # if all players have a result, finish the match
         if all(p.result for p in players):
@@ -305,3 +314,36 @@ async def match_history(player: str, session: Session = Depends(get_session)):
             )
         )
     return history
+
+
+@router.get("/recent", response_model=list[RecentMatch])
+async def recent_matches(session: Session = Depends(get_session)):
+    stmt_matches = select(Match).order_by(Match.created_at.desc()).limit(10)
+    matches = session.exec(stmt_matches).all()
+
+    match_ids = [m.id for m in matches if m.id is not None]
+    players_by_match: dict[int, list[MatchPlayer]] = {mid: [] for mid in match_ids}
+    if match_ids:
+        stmt_players = select(MatchPlayer).where(MatchPlayer.match_id.in_(match_ids))
+        for player in session.exec(stmt_players).all():
+            players_by_match.setdefault(player.match_id, []).append(player)
+
+    recent: list[RecentMatch] = []
+    for match in matches:
+        _apply_timeout(session, match)
+        players = players_by_match.get(match.id, []) if match.id is not None else []
+        recent.append(
+            RecentMatch(
+                match_id=match.id,
+                status=match.status.value,
+                created_at=match.created_at,
+                ended_at=match.ended_at,
+                difficulty=match.difficulty,
+                width=match.width,
+                height=match.height,
+                mines=match.mines,
+                players=[RecentMatchPlayer(name=p.name, result=p.result) for p in players],
+            )
+        )
+
+    return recent
