@@ -2,7 +2,17 @@ import { useEffect, useMemo, useState } from "react";
 import { Board } from "./components/Board";
 import { useGameStore } from "./state/gameStore";
 import { difficultiesList, remainingMines } from "./lib/engine";
-import type { DifficultyKey, LeaderboardEntry, MatchSession, MatchState, MatchProgress, BoardState, RecentMatch } from "./types";
+import type {
+  DifficultyKey,
+  LeaderboardEntry,
+  MatchSession,
+  MatchState,
+  MatchProgress,
+  BoardState,
+  RecentMatch,
+  User,
+  ProfileResponse
+} from "./types";
 import {
   createMatch,
   deleteMatch,
@@ -13,7 +23,11 @@ import {
   joinMatch,
   setReady,
   sendMatchStep,
-  submitScore
+  submitScore,
+  login,
+  register,
+  fetchMe,
+  fetchProfile
 } from "./services/api";
 
 const formatMs = (ms: number | null | undefined) => {
@@ -40,8 +54,16 @@ const parseUtcMillis = (ts?: string | null) => {
 function App() {
   const { board, setDifficulty, startFresh, revealCell, toggleFlag, chordCell } = useGameStore();
   const [mode, setMode] = useState<"solo" | "versus">("solo");
+  const [view, setView] = useState<"solo" | "versus" | "profile">("solo");
   const [now, setNow] = useState(Date.now());
-  const [player, setPlayer] = useState("");
+  const [authMode, setAuthMode] = useState<"login" | "register">("login");
+  const [authHandle, setAuthHandle] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [authLoading, setAuthLoading] = useState(false);
+  const [token, setToken] = useState<string | null>(null);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [autoSubmitted, setAutoSubmitted] = useState(false);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [loadingLb, setLoadingLb] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -60,6 +82,11 @@ function App() {
   const [recentMatches, setRecentMatches] = useState<RecentMatch[]>([]);
   const [recentError, setRecentError] = useState<string | null>(null);
   const [selectedResultPlayerId, setSelectedResultPlayerId] = useState<number | null>(null);
+  const [profile, setProfile] = useState<ProfileResponse | null>(null);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [loadingProfile, setLoadingProfile] = useState(false);
+
+  const isAuthenticated = !!currentUser && !!token;
 
   useEffect(() => {
     const shouldTick = (board.startedAt && !board.endedAt) || (mode === "versus" && !isSpectator && vsState?.status === "active");
@@ -72,6 +99,67 @@ function App() {
     document.documentElement.setAttribute("data-theme", theme);
   }, [theme]);
 
+  useEffect(() => {
+    setAutoSubmitted(false);
+  }, [board.startedAt]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !token) {
+      setProfile(null);
+      return;
+    }
+    let cancelled = false;
+    const load = async () => {
+      try {
+        setLoadingProfile(true);
+        setProfileError(null);
+        const data = await fetchProfile(token);
+        if (!cancelled) setProfile(data);
+      } catch (e) {
+        if (!cancelled) setProfileError(e instanceof Error ? e.message : "讀取個人資料失敗");
+      } finally {
+        if (!cancelled) setLoadingProfile(false);
+      }
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated, token]);
+
+  useEffect(() => {
+    setAuthError(null);
+  }, [authMode]);
+
+  useEffect(() => {
+    const saved = localStorage.getItem("auth_token");
+    if (saved) setToken(saved);
+  }, []);
+
+  useEffect(() => {
+    if (!token) {
+      setCurrentUser(null);
+      return;
+    }
+    let cancelled = false;
+    fetchMe(token)
+      .then((user) => {
+        if (cancelled) return;
+        setCurrentUser(user);
+        setAuthHandle(user.handle);
+        setVsName((prev) => prev || user.handle);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setCurrentUser(null);
+        setToken(null);
+        localStorage.removeItem("auth_token");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
   const elapsedMs = useMemo(() => {
     if (!board.startedAt) return 0;
     const end = board.endedAt ?? now;
@@ -79,10 +167,11 @@ function App() {
   }, [board.startedAt, board.endedAt, now]);
 
   const statusText = useMemo(() => {
+    if (board.status === "idle") return "未開始";
     if (board.status === "won") return "你贏了！";
-    if (board.status === "lost") return "踩到雷 QQ";
+    if (board.status === "lost") return mode === "versus" ? "你輸了" : "踩到雷 QQ";
     return "進行中";
-  }, [board.status]);
+  }, [board.status, mode]);
 
   const myPlayer = useMemo(() => {
     if (!vsMatch || !vsState) return null;
@@ -154,7 +243,17 @@ function App() {
         setVsState(state);
         setVsMatch((m) => (m ? { ...m, status: state.status } : m));
       } catch (err) {
-        if (!cancelled) setVsError(err instanceof Error ? err.message : "對局狀態讀取失敗");
+        if (!cancelled) {
+          setVsError(err instanceof Error ? err.message : "對局狀態讀取失敗");
+          if (isSpectator) {
+            setVsInfo("對局已不存在，已退出觀戰");
+            setVsMatch(null);
+            setVsState(null);
+            setIsSpectator(false);
+            setSpectateId("");
+            setSelectedResultPlayerId(null);
+          }
+        }
       }
     };
     poll();
@@ -238,21 +337,46 @@ function App() {
 
   const handleSubmit = async () => {
     if (board.status !== "won" || !board.endedAt || !board.startedAt) return;
-    if (!player.trim()) {
-      setError("請填寫暱稱");
+    if (!isAuthenticated || !token || !currentUser) {
+      setError("請先登入後再送出");
       return;
     }
     try {
       setSubmitting(true);
       setError(null);
-      await submitScore({ player: player.trim(), difficulty: board.difficulty, timeMs: elapsedMs });
+      await submitScore({ difficulty: board.difficulty, timeMs: elapsedMs, token });
       await loadLeaderboard(board.difficulty);
+      setAutoSubmitted(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "提交失敗");
     } finally {
       setSubmitting(false);
     }
   };
+
+  useEffect(() => {
+    if (!isAuthenticated || !token || !currentUser) return;
+    if (board.status !== "won" || !board.startedAt || !board.endedAt) return;
+    if (autoSubmitted || submitting) return;
+    let cancelled = false;
+    const run = async () => {
+      setAutoSubmitted(true);
+      try {
+        setSubmitting(true);
+        setError(null);
+        await submitScore({ difficulty: board.difficulty, timeMs: elapsedMs, token });
+        await loadLeaderboard(board.difficulty);
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : "提交失敗");
+      } finally {
+        if (!cancelled) setSubmitting(false);
+      }
+    };
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [autoSubmitted, board.difficulty, board.endedAt, board.startedAt, board.status, elapsedMs, isAuthenticated, token, currentUser, submitting]);
 
   const applyBoardConfig = (config: { width: number; height: number; mines: number; seed: string }) => {
     setDifficulty("custom", { width: config.width, height: config.height, mines: config.mines, seed: config.seed });
@@ -286,8 +410,13 @@ function App() {
       return;
     }
     setIsSpectator(false);
-    if (!vsName.trim()) {
-      setVsError("請輸入暱稱");
+    if (!isAuthenticated || !currentUser) {
+      setVsError("請先登入");
+      return;
+    }
+    const displayName = currentUser.handle;
+    if (!displayName) {
+      setVsError("請先登入");
       return;
     }
     try {
@@ -295,14 +424,15 @@ function App() {
       setVsInfo("建立中...");
       const cfg = { width: board.width, height: board.height, mines: board.mines, seed: board.seed };
       const session = await createMatch({
-        player: vsName.trim(),
         width: cfg.width,
         height: cfg.height,
         mines: cfg.mines,
         seed: cfg.seed,
-        difficulty: board.difficulty
+        difficulty: board.difficulty,
+        token: token as string
       });
       setVsMatch({ ...session, status: "pending" });
+      setVsName(displayName);
       setVsState(null);
       setSpectateId("");
       setVsStepCount(0);
@@ -326,15 +456,21 @@ function App() {
       setVsError("請輸入有效的對局 ID");
       return;
     }
-    if (!vsName.trim()) {
-      setVsError("請輸入暱稱");
+    if (!isAuthenticated || !currentUser) {
+      setVsError("請先登入");
+      return;
+    }
+    const displayName = currentUser.handle;
+    if (!displayName) {
+      setVsError("請先登入");
       return;
     }
     try {
       setVsError(null);
       setVsInfo("加入中...");
-      const session = await joinMatch(idNum, { player: vsName.trim() });
+      const session = await joinMatch(idNum, { token: token as string });
       setVsMatch(session);
+      setVsName(displayName);
       setVsState(null);
       setSpectateId("");
       setVsStepCount(0);
@@ -543,6 +679,34 @@ function App() {
     await finishIfNeeded();
   };
 
+  const handleAuthSubmit = async () => {
+    if (!authHandle.trim() || !authPassword.trim()) {
+      setAuthError("請輸入帳號與密碼");
+      return;
+    }
+    try {
+      setAuthLoading(true);
+      setAuthError(null);
+      const nextToken =
+        authMode === "login"
+          ? await login({ handle: authHandle.trim(), password: authPassword })
+          : await register({ handle: authHandle.trim(), password: authPassword });
+      setToken(nextToken);
+      localStorage.setItem("auth_token", nextToken);
+      setAuthPassword("");
+    } catch (e) {
+      setAuthError(e instanceof Error ? e.message : "請稍後再試");
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleLogout = () => {
+    setToken(null);
+    setCurrentUser(null);
+    localStorage.removeItem("auth_token");
+  };
+
   const toggleTheme = () => setTheme((t) => (t === "light" ? "dark" : "light"));
 
   return (
@@ -550,24 +714,42 @@ function App() {
       <header className="flex items-baseline justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">踩地雷</h1>
-          <p className="text-sm opacity-80">{mode === "solo" ? "單人模式（首擊保護）" : "對戰模式（同圖同步／踩雷即敗）"}</p>
+          <p className="text-sm opacity-80">
+            {view === "solo" && "單人模式（首擊保護）"}
+            {view === "versus" && "對戰模式（同圖同步／踩雷即敗）"}
+            {view === "profile" && "個人主頁（最高分與對戰紀錄）"}
+          </p>
         </div>
         <div className="flex gap-2 items-center">
           <button
-            onClick={() => setMode("solo")}
+            onClick={() => {
+              setView("solo");
+              setMode("solo");
+            }}
             className={`px-3 py-2 rounded-full text-sm border ${
-              mode === "solo" ? "bg-[var(--accent)] text-white border-transparent" : "bg-[var(--surface-strong)] border-[var(--border)]"
+              view === "solo" ? "bg-[var(--accent)] text-white border-transparent" : "bg-[var(--surface-strong)] border-[var(--border)]"
             }`}
           >
             單人
           </button>
           <button
-            onClick={() => setMode("versus")}
+            onClick={() => {
+              setView("versus");
+              setMode("versus");
+            }}
             className={`px-3 py-2 rounded-full text-sm border ${
-              mode === "versus" ? "bg-[var(--accent)] text-white border-transparent" : "bg-[var(--surface-strong)] border-[var(--border)]"
+              view === "versus" ? "bg-[var(--accent)] text-white border-transparent" : "bg-[var(--surface-strong)] border-[var(--border)]"
             }`}
           >
             對戰
+          </button>
+          <button
+            onClick={() => setView("profile")}
+            className={`px-3 py-2 rounded-full text-sm border ${
+              view === "profile" ? "bg-[var(--accent)] text-white border-transparent" : "bg-[var(--surface-strong)] border-[var(--border)]"
+            }`}
+          >
+            個人主頁
           </button>
           {difficultiesList.map((d) => (
             <button
@@ -604,258 +786,391 @@ function App() {
         </div>
       </header>
 
-      <section className="grid md:grid-cols-[auto,320px] gap-8 items-start justify-center">
-        <div className="space-y-3 flex flex-col items-center">
-          <div className="flex items-center gap-3">
-            <div className="px-4 py-2 rounded-lg bg-[var(--surface)] shadow border border-[var(--border)]">
-              <div className="text-xs opacity-70">計時</div>
-              <div className="text-2xl font-mono">{formatMs(elapsedMs)} s</div>
+      {view === "profile" ? (
+        <section className="space-y-4">
+          <div className="bg-[var(--surface)] rounded-xl border border-[var(--border)] shadow p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">個人主頁</h2>
+              <div className="text-sm opacity-80">{currentUser ? currentUser.handle : "請登入"}</div>
             </div>
-            <div className="px-4 py-2 rounded-lg bg-[var(--surface)] shadow border border-[var(--border)]">
-              <div className="text-xs opacity-70">剩餘雷</div>
-              <div className="text-2xl font-mono">{remainingMines(board)}</div>
-            </div>
-            <div className="px-4 py-2 rounded-lg bg-[var(--surface)] shadow border border-[var(--border)]">
-              <div className="text-xs opacity-70">狀態</div>
-              <div className="text-lg font-semibold">{statusText}</div>
-            </div>
-          </div>
-
-          <div className="w-max relative">
-            {mode === "versus" && vsState?.status === "active" && preStartLeft !== null && preStartLeft > 0 && (
-              <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/50 text-white text-2xl font-semibold rounded-xl">
-                對局將在 {preStartLeft} 秒後開始
-              </div>
-            )}
-            <Board board={board} onReveal={handleReveal} onFlag={handleFlag} onChord={handleChord} />
-          </div>
-        </div>
-
-        <div className="space-y-4">
-          {mode === "solo" ? (
-            <>
-              <div className="bg-[var(--surface)] rounded-xl border border-[var(--border)] shadow p-4 space-y-3">
-                <h2 className="text-lg font-semibold">送出成績</h2>
-                <input
-                  value={player}
-                  onChange={(e) => setPlayer(e.target.value)}
-                  placeholder="輸入暱稱"
-                  className="w-full rounded border border-[var(--border)] px-3 py-2 bg-[var(--surface-strong)]"
-                />
-                <button
-                  onClick={handleSubmit}
-                  disabled={board.status !== "won" || submitting}
-                  className="w-full rounded bg-[var(--accent-strong)] text-white py-2 disabled:opacity-50"
-                >
-                  {submitting ? "送出中..." : "送出排行榜"}
-                </button>
-                {error && <p className="text-sm text-red-600">{error}</p>}
-              </div>
-
-              <div className="bg-[var(--surface)] rounded-xl border border-[var(--border)] shadow p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-lg font-semibold">排行榜 (前 10 名)</h2>
-                  <span className="text-xs opacity-70">{board.difficulty}</span>
+            {!isAuthenticated ? (
+              <p className="text-sm text-red-600">請先登入查看個人資料</p>
+            ) : loadingProfile ? (
+              <p className="text-sm opacity-70">載入中...</p>
+            ) : profileError ? (
+              <p className="text-sm text-red-600">{profileError}</p>
+            ) : profile ? (
+              <div className="space-y-4">
+                <div>
+                  <h3 className="font-semibold mb-2">各難度最佳成績</h3>
+                  {profile.best_scores.length === 0 ? (
+                    <p className="text-sm opacity-70">尚無成績</p>
+                  ) : (
+                    <ul className="space-y-2 text-sm">
+                      {profile.best_scores.map((b) => (
+                        <li key={`${b.difficulty}-${b.time_ms}`} className="flex items-center justify-between rounded border border-[var(--border)] bg-[var(--surface-strong)] px-3 py-2">
+                          <span className="font-medium">{b.difficulty}</span>
+                          <span className="font-mono">{formatMs(b.time_ms)} s</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
-                {loadingLb ? (
-                  <p className="text-sm opacity-70">載入中...</p>
-                ) : leaderboard.length === 0 ? (
-                  <p className="text-sm opacity-70">暫無成績</p>
-                ) : (
-                  <ol className="space-y-2">
-                    {leaderboard.map((entry, i) => (
-                      <li key={entry.id} className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs opacity-70 w-6">#{i + 1}</span>
-                          <span className="font-medium">{entry.player}</span>
-                        </div>
-                        <div className="font-mono text-sm">{formatMs(entry.timeMs)} s</div>
-                      </li>
-                    ))}
-                  </ol>
-                )}
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="bg-[var(--surface)] rounded-xl border border-[var(--border)] shadow p-4 space-y-3">
-                <h2 className="text-lg font-semibold">對戰設定</h2>
-                <input
-                  value={vsName}
-                  onChange={(e) => setVsName(e.target.value)}
-                  placeholder="輸入暱稱"
-                  className="w-full rounded border border-[var(--border)] px-3 py-2 bg-[var(--surface-strong)]"
-                />
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    onClick={handleCreateMatch}
-                    disabled={!!vsMatch && vsState?.status !== "finished"}
-                    className="w-full rounded bg-[var(--accent-strong)] text-white py-2 disabled:opacity-60"
-                  >
-                    建立對局
-                  </button>
-                  <button
-                    onClick={handleJoinMatch}
-                    disabled={!!vsMatch && vsState?.status !== "finished"}
-                    className="w-full rounded bg-[var(--surface-strong)] border border-[var(--border)] py-2 disabled:opacity-60"
-                  >
-                    加入對局
-                  </button>
-                </div>
-                <button
-                  onClick={handleLeaveMatch}
-                  disabled={!vsMatch || (!isSpectator && vsState?.status === "active" && matchStarted)}
-                  className="w-full rounded bg-[var(--surface-strong)] border border-[var(--border)] py-2 disabled:opacity-60"
-                >
-                  退出對局（開始前）
-                </button>
-                <input
-                  value={joinId}
-                  onChange={(e) => setJoinId(e.target.value)}
-                  placeholder="輸入對局 ID"
-                  className="w-full rounded border border-[var(--border)] px-3 py-2 bg-[var(--surface-strong)]"
-                />
-                <input
-                  value={spectateId}
-                  onChange={(e) => setSpectateId(e.target.value)}
-                  placeholder="輸入觀戰 ID"
-                  className="w-full rounded border border-[var(--border)] px-3 py-2 bg-[var(--surface-strong)]"
-                />
-                <button
-                  onClick={handleSpectate}
-                  disabled={!!vsMatch && !isSpectator && vsState?.status !== "finished"}
-                  className="w-full rounded bg-[var(--surface-strong)] border border-[var(--border)] py-2 disabled:opacity-60"
-                >
-                  觀戰對局
-                </button>
-                {vsInfo && <p className="text-sm text-green-600">{vsInfo}</p>}
-                {vsError && <p className="text-sm text-red-600">{vsError}</p>}
-              </div>
 
-              <div className="bg-[var(--surface)] rounded-xl border border-[var(--border)] shadow p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-lg font-semibold">對戰狀態</h2>
-                  <span className="text-xs opacity-70">{vsMatch ? `#${vsMatch.matchId}` : "尚未加入"}</span>
-                </div>
-                {!vsMatch ? (
-                  <p className="text-sm opacity-70">建立或加入一場對局</p>
-                ) : (
-                  <div className="space-y-3 text-sm">
-                    <p>狀態：{isSpectator ? "觀戰中" : vsState?.status ?? vsMatch.status}</p>
-                    <p>
-                      棋盤：{vsMatch.board.width}x{vsMatch.board.height}，雷 {vsMatch.board.mines}
-                    </p>
-                    <p>
-                      倒數：
-                      {vsState?.started_at
-                        ? preStartLeft && preStartLeft > 0
-                          ? `準備中 ${preStartLeft}s`
-                          : formatCountdown(matchCountdownLeft)
-                        : "等待開始"}
-                    </p>
-                    <div className="space-y-1">
-                      {(vsState?.players ?? []).map((p) => (
-                        <div key={p.id} className="flex items-center justify-between text-sm">
-                          <span>{p.name}</span>
-                          <span className="opacity-70 flex items-center gap-2">
-                            <span>{p.ready ? "已準備" : "未準備"}</span>
-                            <span>{renderResult(p.result, vsState?.status)}</span>
-                          </span>
+                <div>
+                  <h3 className="font-semibold mb-2">對戰紀錄（最近 30 筆）</h3>
+                  {profile.match_history.length === 0 ? (
+                    <p className="text-sm opacity-70">尚無對戰紀錄</p>
+                  ) : (
+                    <div className="space-y-2 text-sm">
+                      {profile.match_history.map((m) => (
+                        <div key={m.match_id} className="rounded border border-[var(--border)] bg-[var(--surface-strong)] px-3 py-2">
+                          <div className="flex items-center justify-between">
+                            <span className="font-semibold">#{m.match_id}</span>
+                            <span className="opacity-70">{m.status}</span>
+                          </div>
+                          <div className="text-xs opacity-80">
+                            {m.width}x{m.height} / {m.mines} 雷 · {m.difficulty ?? "-"}
+                          </div>
+                          <div className="flex items-center justify-between text-xs opacity-80 mt-1">
+                            <span>結果：{renderResult(m.result, m.status)}</span>
+                            <span>{m.duration_ms ? `${formatMs(m.duration_ms)} s` : "--"}</span>
+                          </div>
                         </div>
                       ))}
                     </div>
-                    <button
-                      onClick={handleSetReady}
-                      disabled={myPlayer?.ready || vsState?.status === "active" || vsState?.status === "finished"}
-                      className="w-full rounded bg-[var(--accent-strong)] text-white py-2 disabled:opacity-60"
-                    >
-                      {myPlayer?.ready ? "已準備" : "我已準備"}
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              <div className="bg-[var(--surface)] rounded-xl border border-[var(--border)] shadow p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-lg font-semibold">最近 10 場</h2>
-                  <span className="text-xs opacity-70">含進行中</span>
-                </div>
-                {recentError ? (
-                  <p className="text-sm text-red-600">{recentError}</p>
-                ) : recentMatches.length === 0 ? (
-                  <p className="text-sm opacity-70">暫無紀錄</p>
-                ) : (
-                  <ol className="space-y-2 text-sm">
-                    {recentMatches.map((m) => (
-                      <li key={m.match_id} className="border border-[var(--border)] rounded-lg px-3 py-2 bg-[var(--surface-strong)]">
-                        <div className="flex items-center justify-between">
-                          <span className="font-semibold">#{m.match_id}</span>
-                          <span className="opacity-70">{m.status}</span>
-                        </div>
-                        <div className="text-xs opacity-80">
-                          {m.width}x{m.height} / {m.mines} 雷
-                        </div>
-                        <div className="flex flex-wrap gap-2 mt-1">
-                          {m.players.map((p, idx) => (
-                            <span
-                              key={`${m.match_id}-${idx}-${p.name}`}
-                              className="px-2 py-1 rounded-full text-xs border border-[var(--border)] bg-[var(--surface)]"
-                            >
-                              {p.name}：{p.ready ? "已準備" : "未準備"}／{renderResult(p.result, m.status)}
-                            </span>
-                          ))}
-                        </div>
-                      </li>
-                    ))}
-                  </ol>
-                )}
-              </div>
-
-            </>
-          )}
-        </div>
-      </section>
-
-      {mode === "versus" && vsMatch && vsState?.status === "finished" && (
-        <section className="space-y-4">
-          <div className="bg-[var(--surface)] rounded-xl border border-[var(--border)] shadow p-4 space-y-3">
-            <h2 className="text-lg font-semibold">對戰棋盤</h2>
-            <div className="flex flex-wrap gap-2">
-              {vsState.players.map((p) => (
-                <button
-                  key={p.id}
-                  onClick={() => setSelectedResultPlayerId(p.id)}
-                  className={`px-3 py-1 rounded-full text-sm border ${
-                    selectedResultPlayerId === p.id
-                      ? "bg-[var(--accent)] text-white border-transparent"
-                      : "bg-[var(--surface-strong)] border-[var(--border)]"
-                  }`}
-                >
-                  {p.name} ({renderResult(p.result, vsState.status)})
-                </button>
-              ))}
-            </div>
-
-            {(() => {
-              const p = vsState.players.find((pl) => pl.id === selectedResultPlayerId) ?? vsState.players[0];
-              const snap = p ? getProgressBoard(p.progress ?? null) : null;
-              if (!p) return <p className="text-sm opacity-70">沒有棋盤紀錄</p>;
-              return (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold">{p.name}</span>
-                    <span className="text-sm opacity-80">{p.result ?? "完成"}</span>
-                  </div>
-                  {snap ? (
-                    <Board board={snap} onReveal={() => {}} onFlag={() => {}} onChord={() => {}} />
-                  ) : (
-                    <p className="text-sm opacity-70">沒有棋盤紀錄</p>
                   )}
                 </div>
-              );
-            })()}
+              </div>
+            ) : null}
           </div>
         </section>
+      ) : (
+        <>
+          <section className="grid md:grid-cols-[auto,320px] gap-8 items-start justify-center">
+            <div className="space-y-3 flex flex-col items-center">
+              <div className="flex items-center gap-3">
+                <div className="px-4 py-2 rounded-lg bg-[var(--surface)] shadow border border-[var(--border)]">
+                  <div className="text-xs opacity-70">計時</div>
+                  <div className="text-2xl font-mono">{formatMs(elapsedMs)} s</div>
+                </div>
+                <div className="px-4 py-2 rounded-lg bg-[var(--surface)] shadow border border-[var(--border)]">
+                  <div className="text-xs opacity-70">剩餘雷</div>
+                  <div className="text-2xl font-mono">{remainingMines(board)}</div>
+                </div>
+                <div className="px-4 py-2 rounded-lg bg-[var(--surface)] shadow border border-[var(--border)]">
+                  <div className="text-xs opacity-70">狀態</div>
+                  <div className="text-lg font-semibold">{statusText}</div>
+                </div>
+              </div>
+
+              <div className="w-max relative">
+                {mode === "versus" && vsState?.status === "active" && preStartLeft !== null && preStartLeft > 0 && (
+                  <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/50 text-white text-2xl font-semibold rounded-xl">
+                    對局將在 {preStartLeft} 秒後開始
+                  </div>
+                )}
+                <Board board={board} onReveal={handleReveal} onFlag={handleFlag} onChord={handleChord} />
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="bg-[var(--surface)] rounded-xl border border-[var(--border)] shadow p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-semibold">帳號</h2>
+                  {!isAuthenticated && (
+                    <div className="flex gap-2 text-sm">
+                      <button
+                        onClick={() => setAuthMode("login")}
+                        className={`px-3 py-1 rounded-full border ${
+                          authMode === "login" ? "bg-[var(--accent)] text-white border-transparent" : "bg-[var(--surface-strong)] border-[var(--border)]"
+                        }`}
+                      >
+                        登入
+                      </button>
+                      <button
+                        onClick={() => setAuthMode("register")}
+                        className={`px-3 py-1 rounded-full border ${
+                          authMode === "register" ? "bg-[var(--accent)] text-white border-transparent" : "bg-[var(--surface-strong)] border-[var(--border)]"
+                        }`}
+                      >
+                        註冊
+                      </button>
+                    </div>
+                  )}
+                </div>
+                {isAuthenticated && currentUser ? (
+                  <div className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--surface-strong)] px-3 py-2">
+                    <div>
+                      <div className="text-xs opacity-70">已登入</div>
+                      <div className="font-semibold">{currentUser.handle}</div>
+                    </div>
+                    <button
+                      onClick={handleLogout}
+                      className="text-sm px-3 py-1 rounded border border-[var(--border)] bg-[var(--surface)]"
+                    >
+                      登出
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <input
+                      value={authHandle}
+                      onChange={(e) => setAuthHandle(e.target.value)}
+                      placeholder="帳號（英數 3-50）"
+                      className="w-full rounded border border-[var(--border)] px-3 py-2 bg-[var(--surface-strong)]"
+                    />
+                    <input
+                      type="password"
+                      value={authPassword}
+                      onChange={(e) => setAuthPassword(e.target.value)}
+                      placeholder="密碼（至少 6 碼）"
+                      className="w-full rounded border border-[var(--border)] px-3 py-2 bg-[var(--surface-strong)]"
+                    />
+                    <button
+                      onClick={handleAuthSubmit}
+                      disabled={authLoading}
+                      className="w-full rounded bg-[var(--accent-strong)] text-white py-2 disabled:opacity-60"
+                    >
+                      {authLoading ? "處理中..." : authMode === "login" ? "登入" : "註冊並登入"}
+                    </button>
+                    <p className="text-xs opacity-70">登入後排行榜與對戰名稱會使用帳號 Handle</p>
+                    {authError && <p className="text-sm text-red-600">{authError}</p>}
+                  </div>
+                )}
+              </div>
+
+              {mode === "solo" ? (
+                <>
+                  <div className="bg-[var(--surface)] rounded-xl border border-[var(--border)] shadow p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h2 className="text-lg font-semibold">送出成績</h2>
+                      <span className="text-xs opacity-70">勝利後自動上榜（需登入）</span>
+                    </div>
+                    <div className="rounded border border-[var(--border)] bg-[var(--surface-strong)] px-3 py-2 flex items-center justify-between">
+                      <div className="text-sm">
+                        {isAuthenticated && currentUser ? (
+                          <>
+                            <span className="opacity-70 mr-1">玩家</span>
+                            <span className="font-semibold">{currentUser.handle}</span>
+                          </>
+                        ) : (
+                          <span className="opacity-70">請先登入以自動上榜</span>
+                        )}
+                      </div>
+                      <span className="text-xs opacity-70">{board.difficulty}</span>
+                    </div>
+                    <p className="text-sm opacity-80">完成一局後自動送出最佳成績，不需手動點擊。</p>
+                    {submitting && <p className="text-sm text-green-600">送出中...</p>}
+                    {error && <p className="text-sm text-red-600">{error}</p>}
+                  </div>
+
+                  <div className="bg-[var(--surface)] rounded-xl border border-[var(--border)] shadow p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h2 className="text-lg font-semibold">排行榜 (前 10 名)</h2>
+                      <span className="text-xs opacity-70">{board.difficulty}</span>
+                    </div>
+                    {loadingLb ? (
+                      <p className="text-sm opacity-70">載入中...</p>
+                    ) : leaderboard.length === 0 ? (
+                      <p className="text-sm opacity-70">暫無成績</p>
+                    ) : (
+                      <ol className="space-y-2">
+                        {leaderboard.map((entry, i) => (
+                          <li key={entry.id} className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs opacity-70 w-6">#{i + 1}</span>
+                              <span className="font-medium">{entry.player}</span>
+                            </div>
+                            <div className="font-mono text-sm">{formatMs(entry.timeMs)} s</div>
+                          </li>
+                        ))}
+                      </ol>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="bg-[var(--surface)] rounded-xl border border-[var(--border)] shadow p-4 space-y-3">
+                    <h2 className="text-lg font-semibold">對戰設定</h2>
+                    <div className="rounded border border-[var(--border)] bg-[var(--surface-strong)] px-3 py-2 flex items-center justify-between text-sm">
+                      <span className="opacity-70">對戰名稱</span>
+                      <span className="font-semibold">{currentUser ? currentUser.handle : "請先登入"}</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={handleCreateMatch}
+                        disabled={!isAuthenticated || !currentUser || (!!vsMatch && vsState?.status !== "finished")}
+                        className="w-full rounded bg-[var(--accent-strong)] text-white py-2 disabled:opacity-60"
+                      >
+                        建立對局
+                      </button>
+                      <button
+                        onClick={handleJoinMatch}
+                        disabled={!isAuthenticated || !currentUser || (!!vsMatch && vsState?.status !== "finished")}
+                        className="w-full rounded bg-[var(--surface-strong)] border border-[var(--border)] py-2 disabled:opacity-60"
+                      >
+                        加入對局
+                      </button>
+                    </div>
+                    <button
+                      onClick={handleLeaveMatch}
+                      disabled={!vsMatch || (!isSpectator && vsState?.status === "active" && matchStarted)}
+                      className="w-full rounded bg-[var(--surface-strong)] border border-[var(--border)] py-2 disabled:opacity-60"
+                    >
+                      退出對局（開始前）
+                    </button>
+                    <input
+                      value={joinId}
+                      onChange={(e) => setJoinId(e.target.value)}
+                      placeholder="輸入對局 ID"
+                      className="w-full rounded border border-[var(--border)] px-3 py-2 bg-[var(--surface-strong)]"
+                      disabled={!isAuthenticated || !currentUser}
+                    />
+                    <input
+                      value={spectateId}
+                      onChange={(e) => setSpectateId(e.target.value)}
+                      placeholder="輸入觀戰 ID"
+                      className="w-full rounded border border-[var(--border)] px-3 py-2 bg-[var(--surface-strong)]"
+                    />
+                    <button
+                      onClick={handleSpectate}
+                      disabled={!!vsMatch && !isSpectator && vsState?.status !== "finished"}
+                      className="w-full rounded bg-[var(--surface-strong)] border border-[var(--border)] py-2 disabled:opacity-60"
+                    >
+                      觀戰對局
+                    </button>
+                    {!isAuthenticated && <p className="text-sm text-red-600">請登入後才能建立或加入對局</p>}
+                    {vsInfo && <p className="text-sm text-green-600">{vsInfo}</p>}
+                    {vsError && <p className="text-sm text-red-600">{vsError}</p>}
+                  </div>
+
+                  <div className="bg-[var(--surface)] rounded-xl border border-[var(--border)] shadow p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h2 className="text-lg font-semibold">對戰狀態</h2>
+                      <span className="text-xs opacity-70">{vsMatch ? `#${vsMatch.matchId}` : "尚未加入"}</span>
+                    </div>
+                    {!vsMatch ? (
+                      <p className="text-sm opacity-70">建立或加入一場對局</p>
+                    ) : (
+                      <div className="space-y-3 text-sm">
+                        <p>狀態：{isSpectator ? "觀戰中" : vsState?.status ?? vsMatch.status}</p>
+                        <p>
+                          棋盤：{vsMatch.board.width}x{vsMatch.board.height}，雷 {vsMatch.board.mines}
+                        </p>
+                        <p>
+                          倒數：
+                          {vsState?.started_at
+                            ? preStartLeft && preStartLeft > 0
+                              ? `準備中 ${preStartLeft}s`
+                              : formatCountdown(matchCountdownLeft)
+                            : "等待開始"}
+                        </p>
+                        <div className="space-y-1">
+                          {(vsState?.players ?? []).map((p) => (
+                            <div key={p.id} className="flex items-center justify-between text-sm">
+                              <span>{p.name}</span>
+                              <span className="opacity-70 flex items-center gap-2">
+                                <span>{p.ready ? "已準備" : "未準備"}</span>
+                                <span>{renderResult(p.result, vsState?.status)}</span>
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                        <button
+                          onClick={handleSetReady}
+                          disabled={myPlayer?.ready || vsState?.status === "active" || vsState?.status === "finished"}
+                          className="w-full rounded bg-[var(--accent-strong)] text-white py-2 disabled:opacity-60"
+                        >
+                          {myPlayer?.ready ? "已準備" : "我已準備"}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="bg-[var(--surface)] rounded-xl border border-[var(--border)] shadow p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h2 className="text-lg font-semibold">最近 10 場</h2>
+                      <span className="text-xs opacity-70">含進行中</span>
+                    </div>
+                    {recentError ? (
+                      <p className="text-sm text-red-600">{recentError}</p>
+                    ) : recentMatches.length === 0 ? (
+                      <p className="text-sm opacity-70">暫無紀錄</p>
+                    ) : (
+                      <ol className="space-y-2 text-sm">
+                        {recentMatches.map((m) => (
+                          <li key={m.match_id} className="border border-[var(--border)] rounded-lg px-3 py-2 bg-[var(--surface-strong)]">
+                            <div className="flex items-center justify-between">
+                              <span className="font-semibold">#{m.match_id}</span>
+                              <span className="opacity-70">{m.status}</span>
+                            </div>
+                            <div className="text-xs opacity-80">
+                              {m.width}x{m.height} / {m.mines} 雷
+                            </div>
+                            <div className="flex flex-wrap gap-2 mt-1">
+                              {m.players.map((p, idx) => (
+                                <span
+                                  key={`${m.match_id}-${idx}-${p.name}`}
+                                  className="px-2 py-1 rounded-full text-xs border border-[var(--border)] bg-[var(--surface)]"
+                                >
+                                  {p.name}：{p.ready ? "已準備" : "未準備"}／{renderResult(p.result, m.status)}
+                                </span>
+                              ))}
+                            </div>
+                          </li>
+                        ))}
+                      </ol>
+                    )}
+                  </div>
+
+                </>
+              )}
+            </div>
+          </section>
+
+          {mode === "versus" && vsMatch && vsState?.status === "finished" && (
+            <section className="space-y-4">
+              <div className="bg-[var(--surface)] rounded-xl border border-[var(--border)] shadow p-4 space-y-3">
+                <h2 className="text-lg font-semibold">對戰棋盤</h2>
+                <div className="flex flex-wrap gap-2">
+                  {vsState.players.map((p) => (
+                    <button
+                      key={p.id}
+                      onClick={() => setSelectedResultPlayerId(p.id)}
+                      className={`px-3 py-1 rounded-full text-sm border ${
+                        selectedResultPlayerId === p.id
+                          ? "bg-[var(--accent)] text-white border-transparent"
+                          : "bg-[var(--surface-strong)] border-[var(--border)]"
+                      }`}
+                    >
+                      {p.name} ({renderResult(p.result, vsState.status)})
+                    </button>
+                  ))}
+                </div>
+
+                {(() => {
+                  const p = vsState.players.find((pl) => pl.id === selectedResultPlayerId) ?? vsState.players[0];
+                  const snap = p ? getProgressBoard(p.progress ?? null) : null;
+                  if (!p) return <p className="text-sm opacity-70">沒有棋盤紀錄</p>;
+                  return (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold">{p.name}</span>
+                        <span className="text-sm opacity-80">{p.result ?? "完成"}</span>
+                      </div>
+                      {snap ? (
+                        <Board board={snap} onReveal={() => {}} onFlag={() => {}} onChord={() => {}} />
+                      ) : (
+                        <p className="text-sm opacity-70">沒有棋盤紀錄</p>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+            </section>
+          )}
+        </>
       )}
     </div>
   );

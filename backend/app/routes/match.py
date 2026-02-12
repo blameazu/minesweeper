@@ -23,6 +23,7 @@ from ..schemas import (
     RecentMatch,
     RecentMatchPlayer,
 )
+from .auth import get_current_user
 
 router = APIRouter(prefix="/api/match", tags=["match"])
 
@@ -102,7 +103,9 @@ def _apply_timeout(session: Session, match: Match) -> list[MatchPlayer]:
 
 
 @router.post("", response_model=MatchCreateResponse)
-async def create_match(payload: MatchCreate, session: Session = Depends(get_session)):
+async def create_match(payload: MatchCreate, session: Session = Depends(get_session), user=Depends(get_current_user)):
+    if not user:
+        raise HTTPException(status_code=401, detail="login required")
     match = Match(
         width=payload.width,
         height=payload.height,
@@ -116,7 +119,7 @@ async def create_match(payload: MatchCreate, session: Session = Depends(get_sess
     session.refresh(match)
 
     token = secrets.token_urlsafe(16)
-    player = MatchPlayer(match_id=match.id, name=payload.player, token=token)
+    player = MatchPlayer(match_id=match.id, name=user.handle, user_id=user.id, token=token)
     session.add(player)
     session.commit()
     session.refresh(player)
@@ -131,12 +134,20 @@ async def create_match(payload: MatchCreate, session: Session = Depends(get_sess
 
 
 @router.post("/{match_id}/join", response_model=MatchJoinResponse)
-async def join_match(match_id: int, payload: MatchJoin, session: Session = Depends(get_session)):
+async def join_match(match_id: int, payload: MatchJoin, session: Session = Depends(get_session), user=Depends(get_current_user)):
+    if not user:
+        raise HTTPException(status_code=401, detail="login required")
     match = _get_match(session, match_id)
     _ensure_joinable(session, match)
 
+    existing_players = _list_players(session, match)
+    if any(p.user_id == user.id for p in existing_players):
+        raise HTTPException(status_code=400, detail="cannot join own match")
+    if any(p.name == user.handle for p in existing_players):
+        raise HTTPException(status_code=400, detail="handle already in match")
+
     token = secrets.token_urlsafe(16)
-    player = MatchPlayer(match_id=match.id, name=payload.player, token=token)
+    player = MatchPlayer(match_id=match.id, name=user.handle, user_id=user.id, token=token)
     session.add(player)
 
     session.commit()

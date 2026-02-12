@@ -5,7 +5,7 @@ from pydantic import ConfigDict
 
 
 class LeaderboardCreate(BaseModel):
-    player: constr(strip_whitespace=True, min_length=1, max_length=50)
+    player: constr(strip_whitespace=True, min_length=1, max_length=50) | None = None
     difficulty: str
     time_ms: int
 
@@ -13,6 +13,7 @@ class LeaderboardCreate(BaseModel):
 class LeaderboardRead(BaseModel):
     id: int
     player: str
+    handle: str | None = None
     difficulty: str
     time_ms: int
     created_at: datetime
@@ -102,6 +103,24 @@ class MatchDelete(BaseModel):
     player_token: str
 
 
+class UserCreate(BaseModel):
+    handle: constr(strip_whitespace=True, pattern=r"^[A-Za-z0-9]{3,50}$")
+    password: constr(min_length=6, max_length=72)
+
+
+class UserRead(BaseModel):
+    id: int
+    handle: str
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+
 class MatchStepRead(BaseModel):
     player_name: str
     action: str
@@ -127,6 +146,18 @@ class MatchHistoryItem(BaseModel):
     duration_ms: Optional[int]
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ProfileBestScore(BaseModel):
+    difficulty: str
+    time_ms: int
+    created_at: datetime
+
+
+class ProfileResponse(BaseModel):
+    handle: str
+    best_scores: list[ProfileBestScore]
+    match_history: list[MatchHistoryItem]
 
 
 class RecentMatchPlayer(BaseModel):

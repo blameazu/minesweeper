@@ -18,6 +18,13 @@ class MatchStatus(str, Enum):
     finished = "finished"
 
 
+class User(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    handle: str = Field(index=True, max_length=50, sa_column_kwargs={"unique": True})
+    hashed_password: str
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class Match(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     status: MatchStatus = Field(default=MatchStatus.pending, index=True)
@@ -36,6 +43,7 @@ class MatchPlayer(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     match_id: int = Field(foreign_key="match.id", index=True)
     name: str = Field(max_length=50)
+    user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
     token: str = Field(index=True)
     result: Optional[str] = Field(default=None, index=True)  # win/lose/draw/forfeit
     duration_ms: Optional[int] = None

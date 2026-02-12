@@ -111,3 +111,21 @@ export interface RecentMatch {
   mines: number;
   players: RecentMatchPlayer[];
 }
+
+export interface User {
+  id: number;
+  handle: string;
+  created_at: string;
+}
+
+export interface ProfileBestScore {
+  difficulty: string;
+  time_ms: number;
+  created_at: string;
+}
+
+export interface ProfileResponse {
+  handle: string;
+  best_scores: ProfileBestScore[];
+  match_history: MatchHistoryItem[];
+}

@@ -26,16 +26,20 @@ def _run_light_migrations() -> None:
     with Session(engine) as session:
         if not _column_exists(session, "match", "countdown_secs"):
             session.exec(text("ALTER TABLE match ADD COLUMN countdown_secs INTEGER DEFAULT 300;"))
-            session.exec(text("UPDATE match SET countdown_secs = 300 WHERE countdown_secs IS NULL;"))
         if not _column_exists(session, "matchplayer", "ready"):
             session.exec(text("ALTER TABLE matchplayer ADD COLUMN ready BOOLEAN DEFAULT 0;"))
-            session.exec(text("UPDATE matchplayer SET ready = 0 WHERE ready IS NULL;"))
         if not _column_exists(session, "matchplayer", "progress"):
             session.exec(text("ALTER TABLE matchplayer ADD COLUMN progress TEXT;"))
-        else:
-            # Backfill existing NULLs for previously added columns
-            session.exec(text("UPDATE match SET countdown_secs = 300 WHERE countdown_secs IS NULL;"))
-            session.exec(text("UPDATE matchplayer SET ready = 0 WHERE ready IS NULL;"))
+        if not _column_exists(session, "matchplayer", "user_id"):
+            session.exec(text("ALTER TABLE matchplayer ADD COLUMN user_id INTEGER;"))
+        if not _column_exists(session, "user", "handle"):
+            session.exec(text("ALTER TABLE user ADD COLUMN handle VARCHAR(50);"))
+        if not _column_exists(session, "leaderboardentry", "handle"):
+            session.exec(text("ALTER TABLE leaderboardentry ADD COLUMN handle VARCHAR(50);"))
+
+        # Backfill defaults where applicable
+        session.exec(text("UPDATE match SET countdown_secs = 300 WHERE countdown_secs IS NULL;"))
+        session.exec(text("UPDATE matchplayer SET ready = 0 WHERE ready IS NULL;"))
         session.commit()
 
 

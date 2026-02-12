@@ -1,18 +1,19 @@
-import type { DifficultyKey, LeaderboardEntry, MatchBoard, MatchSession, MatchState, MatchStep, RecentMatch } from "../types";
+import type { DifficultyKey, LeaderboardEntry, MatchBoard, MatchSession, MatchState, MatchStep, RecentMatch, User, ProfileResponse } from "../types";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
 const NGROK_HEADER = { "ngrok-skip-browser-warning": "true" };
 
+const authHeaders = (token?: string) => (token ? { Authorization: `Bearer ${token}` } : {});
+
 export const submitScore = async (params: {
-  player: string;
   difficulty: DifficultyKey;
   timeMs: number;
+  token: string;
 }) => {
   const res = await fetch(`${API_BASE}/api/leaderboard`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...NGROK_HEADER },
+    headers: { "Content-Type": "application/json", ...NGROK_HEADER, ...authHeaders(params.token) },
     body: JSON.stringify({
-      player: params.player,
       difficulty: params.difficulty,
       time_ms: params.timeMs
     })
@@ -51,17 +52,24 @@ export const deleteMatch = async (matchId: number, params: { playerToken: string
 };
 
 export const createMatch = async (params: {
-  player: string;
   width: number;
   height: number;
   mines: number;
   seed?: string;
   difficulty?: string;
+  token: string;
 }): Promise<MatchSession> => {
   const res = await fetch(`${API_BASE}/api/match`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...NGROK_HEADER },
-    body: JSON.stringify(params)
+    headers: { "Content-Type": "application/json", ...NGROK_HEADER, ...authHeaders(params.token) },
+    body: JSON.stringify({
+      player: "", // backend will use current user handle
+      width: params.width,
+      height: params.height,
+      mines: params.mines,
+      seed: params.seed,
+      difficulty: params.difficulty
+    })
   });
   if (!res.ok) throw new Error(`建立對局失敗 (${res.status})`);
   const data = await res.json();
@@ -75,11 +83,11 @@ export const createMatch = async (params: {
   };
 };
 
-export const joinMatch = async (matchId: number, params: { player: string }): Promise<MatchSession> => {
+export const joinMatch = async (matchId: number, params: { token: string }): Promise<MatchSession> => {
   const res = await fetch(`${API_BASE}/api/match/${matchId}/join`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...NGROK_HEADER },
-    body: JSON.stringify(params)
+    headers: { "Content-Type": "application/json", ...NGROK_HEADER, ...authHeaders(params.token) },
+    body: JSON.stringify({ player: "" })
   });
   if (!res.ok) throw new Error(`加入對局失敗 (${res.status})`);
   const data = await res.json();
@@ -161,5 +169,39 @@ export const fetchMatchSteps = async (matchId: number): Promise<MatchStep[]> => 
 export const fetchRecentMatches = async (): Promise<RecentMatch[]> => {
   const res = await fetch(`${API_BASE}/api/match/recent`, { headers: { ...NGROK_HEADER } });
   if (!res.ok) throw new Error(`讀取最近對戰失敗 (${res.status})`);
+  return res.json();
+};
+
+export const fetchProfile = async (token: string): Promise<ProfileResponse> => {
+  const res = await fetch(`${API_BASE}/api/profile/me`, { headers: { ...NGROK_HEADER, ...authHeaders(token) } });
+  if (!res.ok) throw new Error(`讀取個人資料失敗 (${res.status})`);
+  return res.json();
+};
+
+export const register = async (params: { handle: string; password: string }): Promise<string> => {
+  const res = await fetch(`${API_BASE}/api/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...NGROK_HEADER },
+    body: JSON.stringify(params)
+  });
+  if (!res.ok) throw new Error(`註冊失敗 (${res.status})`);
+  const data = await res.json();
+  return data.access_token as string;
+};
+
+export const login = async (params: { handle: string; password: string }): Promise<string> => {
+  const res = await fetch(`${API_BASE}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...NGROK_HEADER },
+    body: JSON.stringify(params)
+  });
+  if (!res.ok) throw new Error(`登入失敗 (${res.status})`);
+  const data = await res.json();
+  return data.access_token as string;
+};
+
+export const fetchMe = async (token: string): Promise<User> => {
+  const res = await fetch(`${API_BASE}/api/auth/me`, { headers: { ...NGROK_HEADER, ...authHeaders(token) } });
+  if (!res.ok) throw new Error(`讀取使用者失敗 (${res.status})`);
   return res.json();
 };
