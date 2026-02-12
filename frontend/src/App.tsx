@@ -5,6 +5,7 @@ import { difficultiesList, remainingMines } from "./lib/engine";
 import type { DifficultyKey, LeaderboardEntry, MatchSession, MatchState, MatchProgress, BoardState, RecentMatch } from "./types";
 import {
   createMatch,
+  deleteMatch,
   fetchLeaderboard,
   fetchMatchState,
   fetchRecentMatches,
@@ -49,9 +50,11 @@ function App() {
   const [vsName, setVsName] = useState("");
   const [vsMatch, setVsMatch] = useState<MatchSession | null>(null);
   const [vsState, setVsState] = useState<MatchState | null>(null);
+  const [isSpectator, setIsSpectator] = useState(false);
   const [vsError, setVsError] = useState<string | null>(null);
   const [vsInfo, setVsInfo] = useState<string | null>(null);
   const [joinId, setJoinId] = useState("");
+  const [spectateId, setSpectateId] = useState("");
   const [vsStepCount, setVsStepCount] = useState(0);
   const [vsProgressUploaded, setVsProgressUploaded] = useState(false);
   const [recentMatches, setRecentMatches] = useState<RecentMatch[]>([]);
@@ -59,11 +62,11 @@ function App() {
   const [selectedResultPlayerId, setSelectedResultPlayerId] = useState<number | null>(null);
 
   useEffect(() => {
-    const shouldTick = (board.startedAt && !board.endedAt) || (mode === "versus" && vsState?.status === "active");
+    const shouldTick = (board.startedAt && !board.endedAt) || (mode === "versus" && !isSpectator && vsState?.status === "active");
     if (!shouldTick) return;
     const t = setInterval(() => setNow(Date.now()), 200);
     return () => clearInterval(t);
-  }, [mode, board.startedAt, board.endedAt, vsState?.status]);
+  }, [mode, board.startedAt, board.endedAt, vsState?.status, isSpectator]);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -95,6 +98,12 @@ function App() {
     const startMs = parseUtcMillis(vsState?.started_at);
     if (startMs === null) return null;
     return Math.max(0, Math.floor((startMs - now) / 1000));
+  }, [vsState?.started_at, now]);
+
+  const matchStarted = useMemo(() => {
+    const startMs = parseUtcMillis(vsState?.started_at);
+    if (startMs === null) return false;
+    return now >= startMs;
   }, [vsState?.started_at, now]);
 
   const matchCountdownLeft = useMemo(() => {
@@ -141,6 +150,7 @@ function App() {
       try {
         const state = await fetchMatchState(vsMatch.matchId);
         if (cancelled) return;
+        setVsError(null);
         setVsState(state);
         setVsMatch((m) => (m ? { ...m, status: state.status } : m));
       } catch (err) {
@@ -204,6 +214,20 @@ function App() {
     }).finally(() => setVsProgressUploaded(true));
   }, [myPlayer, vsMatch, vsProgressUploaded, vsState, vsStepCount]);
 
+  useEffect(() => {
+    if (mode !== "versus") return;
+    if (!vsState || vsState.status !== "finished") return;
+    if (!myPlayer) return;
+    useGameStore.setState((state) => {
+      const board = state.board;
+      if (board.status === "won" || board.status === "lost") return state;
+
+      const status = myPlayer.result === "win" ? "won" : myPlayer.result === "lose" ? "lost" : board.status;
+      if (status === board.status) return state;
+      return { board: { ...board, status, endedAt: board.endedAt ?? Date.now() } };
+    });
+  }, [mode, vsState?.status, myPlayer]);
+
   const handleDifficulty = (key: DifficultyKey) => {
     if (mode === "versus") {
       setVsError("對戰中不可切換難度");
@@ -240,7 +264,28 @@ function App() {
     return boardSnapshot;
   };
 
+  const renderResult = (result?: string | null, matchStatus?: string) => {
+    if (!result) return matchStatus === "finished" ? "已結束" : "進行中";
+    switch (result) {
+      case "win":
+        return "勝利";
+      case "lose":
+        return "失敗";
+      case "draw":
+        return "平手";
+      case "forfeit":
+        return "棄權";
+      default:
+        return result;
+    }
+  };
+
   const handleCreateMatch = async () => {
+    if (vsMatch && vsState?.status !== "finished") {
+      setVsError("已在對局中，請先退出或等待結束");
+      return;
+    }
+    setIsSpectator(false);
     if (!vsName.trim()) {
       setVsError("請輸入暱稱");
       return;
@@ -259,6 +304,7 @@ function App() {
       });
       setVsMatch({ ...session, status: "pending" });
       setVsState(null);
+      setSpectateId("");
       setVsStepCount(0);
       setVsProgressUploaded(false);
       setSelectedResultPlayerId(null);
@@ -270,6 +316,11 @@ function App() {
   };
 
   const handleJoinMatch = async () => {
+    if (vsMatch && !isSpectator && vsState?.status !== "finished") {
+      setVsError("已在對局中，請先退出或等待結束");
+      return;
+    }
+    setIsSpectator(false);
     const idNum = Number(joinId);
     if (!joinId || Number.isNaN(idNum)) {
       setVsError("請輸入有效的對局 ID");
@@ -285,6 +336,7 @@ function App() {
       const session = await joinMatch(idNum, { player: vsName.trim() });
       setVsMatch(session);
       setVsState(null);
+      setSpectateId("");
       setVsStepCount(0);
       setVsProgressUploaded(false);
       setSelectedResultPlayerId(null);
@@ -295,7 +347,75 @@ function App() {
     }
   };
 
+  const handleLeaveMatch = async () => {
+    if (!vsMatch) return;
+    if (!isSpectator && matchStarted && vsState?.status === "active") {
+      setVsError("對局已開始，無法退出");
+      return;
+    }
+    setVsError(null);
+    try {
+      const soloMatch = (vsState?.players?.length ?? 0) <= 1;
+      const notStarted = !matchStarted || vsState?.status !== "active";
+      if (!isSpectator && soloMatch && notStarted) {
+        await deleteMatch(vsMatch.matchId, { playerToken: vsMatch.playerToken });
+        setVsInfo("已退出並刪除對局");
+      } else {
+        setVsInfo("已退出對局");
+      }
+    } catch (e) {
+      setVsError(e instanceof Error ? e.message : "退出失敗");
+      return;
+    }
+
+    setVsMatch(null);
+    setVsState(null);
+    setIsSpectator(false);
+    setSpectateId("");
+    setVsStepCount(0);
+    setVsProgressUploaded(false);
+    setSelectedResultPlayerId(null);
+    startFresh();
+  };
+
+  const handleSpectate = async () => {
+    const idNum = Number(spectateId);
+    if (!spectateId || Number.isNaN(idNum)) {
+      setVsError("請輸入有效的觀戰 ID");
+      return;
+    }
+    if (vsMatch && !isSpectator && vsState?.status !== "finished") {
+      setVsError("目前在對局中，請先退出或等待結束");
+      return;
+    }
+    try {
+      setVsError(null);
+      setVsInfo("載入對局中...");
+      const state = await fetchMatchState(idNum);
+      const session: MatchSession = {
+        matchId: idNum,
+        playerId: -1,
+        playerToken: "",
+        board: { width: state.width, height: state.height, mines: state.mines, seed: state.seed },
+        status: state.status
+      };
+      setVsMatch(session);
+      setVsState(state);
+      setIsSpectator(true);
+      setVsStepCount(0);
+      setVsProgressUploaded(false);
+      setSelectedResultPlayerId(state.players[0]?.id ?? null);
+      setVsInfo(`觀戰對局 #${idNum}`);
+    } catch (e) {
+      setVsError(e instanceof Error ? e.message : "觀戰載入失敗");
+    }
+  };
+
   const handleSetReady = async () => {
+    if (isSpectator) {
+      setVsError("觀戰模式無法準備");
+      return;
+    }
     if (!vsMatch) {
       setVsError("尚未加入對局");
       return;
@@ -311,6 +431,10 @@ function App() {
 
   const sendStepIfNeeded = async (action: "reveal" | "flag" | "chord", x: number, y: number, nextStepCount: number) => {
     if (mode !== "versus" || !vsMatch) return;
+    if (isSpectator) {
+      setVsError("觀戰模式僅供查看");
+      return;
+    }
     if (!vsState || vsState.status !== "active") {
       setVsError("雙方尚未準備，無法操作");
       return;
@@ -355,6 +479,10 @@ function App() {
 
   const handleReveal = async (x: number, y: number) => {
     if (mode === "versus") {
+      if (isSpectator) {
+        setVsError("觀戰模式無法操作");
+        return;
+      }
       if (vsMatch?.status === "finished") return;
       if (!vsState || vsState.status !== "active") {
         setVsError("對局尚未開始");
@@ -373,6 +501,10 @@ function App() {
 
   const handleFlag = async (x: number, y: number) => {
     if (mode === "versus") {
+      if (isSpectator) {
+        setVsError("觀戰模式無法操作");
+        return;
+      }
       if (vsMatch?.status === "finished") return;
       if (!vsState || vsState.status !== "active") {
         setVsError("對局尚未開始");
@@ -391,6 +523,10 @@ function App() {
 
   const handleChord = async (x: number, y: number) => {
     if (mode === "versus") {
+      if (isSpectator) {
+        setVsError("觀戰模式無法操作");
+        return;
+      }
       if (vsMatch?.status === "finished") return;
       if (!vsState || vsState.status !== "active") {
         setVsError("對局尚未開始");
@@ -553,23 +689,45 @@ function App() {
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     onClick={handleCreateMatch}
-                    className="w-full rounded bg-[var(--accent-strong)] text-white py-2"
+                    disabled={!!vsMatch && vsState?.status !== "finished"}
+                    className="w-full rounded bg-[var(--accent-strong)] text-white py-2 disabled:opacity-60"
                   >
                     建立對局
                   </button>
                   <button
                     onClick={handleJoinMatch}
-                    className="w-full rounded bg-[var(--surface-strong)] border border-[var(--border)] py-2"
+                    disabled={!!vsMatch && vsState?.status !== "finished"}
+                    className="w-full rounded bg-[var(--surface-strong)] border border-[var(--border)] py-2 disabled:opacity-60"
                   >
                     加入對局
                   </button>
                 </div>
+                <button
+                  onClick={handleLeaveMatch}
+                  disabled={!vsMatch || (!isSpectator && vsState?.status === "active" && matchStarted)}
+                  className="w-full rounded bg-[var(--surface-strong)] border border-[var(--border)] py-2 disabled:opacity-60"
+                >
+                  退出對局（開始前）
+                </button>
                 <input
                   value={joinId}
                   onChange={(e) => setJoinId(e.target.value)}
                   placeholder="輸入對局 ID"
                   className="w-full rounded border border-[var(--border)] px-3 py-2 bg-[var(--surface-strong)]"
                 />
+                <input
+                  value={spectateId}
+                  onChange={(e) => setSpectateId(e.target.value)}
+                  placeholder="輸入觀戰 ID"
+                  className="w-full rounded border border-[var(--border)] px-3 py-2 bg-[var(--surface-strong)]"
+                />
+                <button
+                  onClick={handleSpectate}
+                  disabled={!!vsMatch && !isSpectator && vsState?.status !== "finished"}
+                  className="w-full rounded bg-[var(--surface-strong)] border border-[var(--border)] py-2 disabled:opacity-60"
+                >
+                  觀戰對局
+                </button>
                 {vsInfo && <p className="text-sm text-green-600">{vsInfo}</p>}
                 {vsError && <p className="text-sm text-red-600">{vsError}</p>}
               </div>
@@ -583,7 +741,7 @@ function App() {
                   <p className="text-sm opacity-70">建立或加入一場對局</p>
                 ) : (
                   <div className="space-y-3 text-sm">
-                    <p>狀態：{vsState?.status ?? vsMatch.status}</p>
+                    <p>狀態：{isSpectator ? "觀戰中" : vsState?.status ?? vsMatch.status}</p>
                     <p>
                       棋盤：{vsMatch.board.width}x{vsMatch.board.height}，雷 {vsMatch.board.mines}
                     </p>
@@ -601,7 +759,7 @@ function App() {
                           <span>{p.name}</span>
                           <span className="opacity-70 flex items-center gap-2">
                             <span>{p.ready ? "已準備" : "未準備"}</span>
-                            <span>{p.result ?? "進行中"}</span>
+                            <span>{renderResult(p.result, vsState?.status)}</span>
                           </span>
                         </div>
                       ))}
@@ -643,7 +801,7 @@ function App() {
                               key={`${m.match_id}-${idx}-${p.name}`}
                               className="px-2 py-1 rounded-full text-xs border border-[var(--border)] bg-[var(--surface)]"
                             >
-                              {p.name}：{p.result ?? "進行中"}
+                              {p.name}：{p.ready ? "已準備" : "未準備"}／{renderResult(p.result, m.status)}
                             </span>
                           ))}
                         </div>
@@ -673,7 +831,7 @@ function App() {
                       : "bg-[var(--surface-strong)] border-[var(--border)]"
                   }`}
                 >
-                  {p.name} ({p.result ?? "進行中"})
+                  {p.name} ({renderResult(p.result, vsState.status)})
                 </button>
               ))}
             </div>

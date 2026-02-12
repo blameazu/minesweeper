@@ -123,11 +123,12 @@ export const reveal = (state: BoardState, x: number, y: number): BoardState => {
   let startedAt = state.startedAt;
   let cells = state.cells.slice();
 
-  // If first move, ensure board is populated with safety
-  if (state.startedAt === null) {
+  // If mines haven't been placed yet, populate on first reveal (even if timer already started by versus pre-start)
+  const needsPopulate = !state.cells.some((c) => c.isMine);
+  if (needsPopulate) {
     const newBoard = startBoard({ width: state.width, height: state.height, mines: state.mines, seed: state.seed, cells: state.cells }, { x, y });
     cells = newBoard.cells;
-    startedAt = Date.now();
+    startedAt = state.startedAt ?? Date.now();
   }
 
   floodReveal(cells, state.width, state.height, x, y);

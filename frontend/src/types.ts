@@ -97,6 +97,7 @@ export interface MatchSession {
 export interface RecentMatchPlayer {
   name: string;
   result?: string | null;
+  ready?: boolean | null;
 }
 
 export interface RecentMatch {

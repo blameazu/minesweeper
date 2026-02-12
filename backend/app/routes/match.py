@@ -19,6 +19,7 @@ from ..schemas import (
     MatchStepCreate,
     MatchStepRead,
     MatchReady,
+    MatchDelete,
     RecentMatch,
     RecentMatchPlayer,
 )
@@ -163,7 +164,7 @@ async def set_ready(match_id: int, payload: MatchReady, session: Session = Depen
     players = _list_players(session, match)
     if len(players) == 2 and all(p.ready for p in players) and match.status != MatchStatus.finished:
         match.status = MatchStatus.active
-        start_delay = 5
+        start_delay = 10
         now = datetime.utcnow()
         match.started_at = match.started_at or now + timedelta(seconds=start_delay)
         if not match.countdown_secs:
@@ -276,6 +277,35 @@ async def finish_match(match_id: int, payload: MatchFinish, session: Session = D
     return {"ok": True}
 
 
+@router.delete("/{match_id}")
+async def delete_match(match_id: int, payload: MatchDelete, session: Session = Depends(get_session)):
+    match = _get_match(session, match_id)
+    player = _get_player_by_token(session, payload.player_token)
+    if not player or player.match_id != match.id:
+        raise HTTPException(status_code=403, detail="invalid player token")
+
+    players = _list_players(session, match)
+    if len(players) > 1:
+        raise HTTPException(status_code=400, detail="cannot delete match with multiple players")
+
+    now = datetime.utcnow()
+    if match.started_at and now >= match.started_at:
+        raise HTTPException(status_code=400, detail="cannot delete a started match")
+
+    # delete steps, players, then match
+    steps_stmt = select(MatchStep).where(MatchStep.match_id == match.id)
+    for step in session.exec(steps_stmt):
+        session.delete(step)
+
+    players_stmt = select(MatchPlayer).where(MatchPlayer.match_id == match.id)
+    for p in session.exec(players_stmt):
+        session.delete(p)
+
+    session.delete(match)
+    session.commit()
+    return {"ok": True, "deleted": True}
+
+
 @router.get("/{match_id}/steps", response_model=list[MatchStepRead])
 async def list_steps(match_id: int, session: Session = Depends(get_session)):
     match = _get_match(session, match_id)
@@ -350,7 +380,7 @@ async def recent_matches(session: Session = Depends(get_session)):
                 width=match.width,
                 height=match.height,
                 mines=match.mines,
-                players=[RecentMatchPlayer(name=p.name, result=p.result) for p in players],
+                players=[RecentMatchPlayer(name=p.name, result=p.result, ready=p.ready) for p in players],
             )
         )
 

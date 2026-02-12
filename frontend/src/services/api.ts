@@ -40,6 +40,16 @@ export const fetchLeaderboard = async (difficulty: DifficultyKey): Promise<Leade
   }));
 };
 
+export const deleteMatch = async (matchId: number, params: { playerToken: string }) => {
+  const res = await fetch(`${API_BASE}/api/match/${matchId}`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json", ...NGROK_HEADER },
+    body: JSON.stringify({ player_token: params.playerToken })
+  });
+  if (!res.ok) throw new Error(`刪除對局失敗 (${res.status})`);
+  return res.json();
+};
+
 export const createMatch = async (params: {
   player: string;
   width: number;

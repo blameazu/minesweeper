@@ -98,6 +98,10 @@ class MatchReady(BaseModel):
     ready: bool = True
 
 
+class MatchDelete(BaseModel):
+    player_token: str
+
+
 class MatchStepRead(BaseModel):
     player_name: str
     action: str
@@ -128,6 +132,7 @@ class MatchHistoryItem(BaseModel):
 class RecentMatchPlayer(BaseModel):
     name: str
     result: Optional[str]
+    ready: Optional[bool] = None
 
 
 class RecentMatch(BaseModel):
