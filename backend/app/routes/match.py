@@ -163,7 +163,9 @@ async def set_ready(match_id: int, payload: MatchReady, session: Session = Depen
     players = _list_players(session, match)
     if len(players) == 2 and all(p.ready for p in players) and match.status != MatchStatus.finished:
         match.status = MatchStatus.active
-        match.started_at = match.started_at or datetime.utcnow()
+        start_delay = 5
+        now = datetime.utcnow()
+        match.started_at = match.started_at or now + timedelta(seconds=start_delay)
         if not match.countdown_secs:
             match.countdown_secs = 300
 
@@ -202,6 +204,8 @@ async def submit_step(match_id: int, payload: MatchStepCreate, session: Session 
     players = _apply_timeout(session, match)
     if match.status != MatchStatus.active:
         raise HTTPException(status_code=400, detail="match not active")
+    if match.started_at and datetime.utcnow() < match.started_at:
+        raise HTTPException(status_code=400, detail="match not started")
 
     stmt = select(MatchStep).where(MatchStep.match_id == match.id, MatchStep.player_id == player.id).order_by(MatchStep.seq.desc())
     last_step = session.exec(stmt).first()

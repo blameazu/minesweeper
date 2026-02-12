@@ -47,6 +47,7 @@ function App() {
   const [vsProgressUploaded, setVsProgressUploaded] = useState(false);
   const [recentMatches, setRecentMatches] = useState<RecentMatch[]>([]);
   const [recentError, setRecentError] = useState<string | null>(null);
+  const [selectedResultPlayerId, setSelectedResultPlayerId] = useState<number | null>(null);
 
   useEffect(() => {
     const shouldTick = (board.startedAt && !board.endedAt) || (mode === "versus" && vsState?.status === "active");
@@ -54,6 +55,17 @@ function App() {
     const t = setInterval(() => setNow(Date.now()), 200);
     return () => clearInterval(t);
   }, [mode, board.startedAt, board.endedAt, vsState?.status]);
+
+  useEffect(() => {
+    if (mode !== "versus") return;
+    if (!vsState || vsState.status !== "active") return;
+    if (preStartLeft && preStartLeft > 0) return;
+    useGameStore.setState((state) => {
+      const startedAt = state.board.startedAt ?? Date.now();
+      const status = state.board.status === "idle" ? "playing" : state.board.status;
+      return { board: { ...state.board, startedAt, status } };
+    });
+  }, [mode, vsState, preStartLeft]);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -81,15 +93,19 @@ function App() {
     return vsState.players.find((p) => p.id !== vsMatch.playerId) ?? null;
   }, [vsState, vsMatch]);
 
-  const countdownDeadline = useMemo(() => {
+  const preStartLeft = useMemo(() => {
     if (!vsState?.started_at) return null;
-    return new Date(vsState.started_at).getTime() + (vsState.countdown_secs ?? 0) * 1000;
-  }, [vsState?.started_at, vsState?.countdown_secs]);
+    const startMs = new Date(vsState.started_at).getTime();
+    return Math.max(0, Math.floor((startMs - now) / 1000));
+  }, [vsState?.started_at, now]);
 
-  const countdownLeft = useMemo(() => {
-    if (!countdownDeadline) return null;
-    return Math.max(0, Math.floor((countdownDeadline - now) / 1000));
-  }, [countdownDeadline, now]);
+  const matchCountdownLeft = useMemo(() => {
+    if (!vsState?.started_at) return null;
+    const startMs = new Date(vsState.started_at).getTime();
+    const endMs = startMs + (vsState.countdown_secs ?? 0) * 1000;
+    const anchor = Math.max(now, startMs); // do not count down before start
+    return Math.max(0, Math.floor((endMs - anchor) / 1000));
+  }, [vsState?.started_at, vsState?.countdown_secs, now]);
 
   const loadLeaderboard = async (difficulty: DifficultyKey) => {
     try {
@@ -122,7 +138,7 @@ function App() {
       }
     };
     poll();
-    const id = setInterval(poll, 2000);
+    const id = setInterval(poll, 1000);
     return () => {
       cancelled = true;
       clearInterval(id);
@@ -155,7 +171,11 @@ function App() {
     if (!vsMatch || !vsState) return;
     if (vsState.status !== "finished") {
       setVsProgressUploaded(false);
+      setSelectedResultPlayerId(null);
       return;
+    }
+    if (selectedResultPlayerId === null && vsState.players.length > 0) {
+      setSelectedResultPlayerId(vsState.players[0].id);
     }
     if (vsProgressUploaded) return;
     if (myPlayer?.progress) {
@@ -231,6 +251,7 @@ function App() {
       setVsState(null);
       setVsStepCount(0);
       setVsProgressUploaded(false);
+      setSelectedResultPlayerId(null);
       applyBoardConfig(session.board);
       setVsInfo(`已建立對局，分享 ID: ${session.matchId}`);
     } catch (e) {
@@ -256,6 +277,7 @@ function App() {
       setVsState(null);
       setVsStepCount(0);
       setVsProgressUploaded(false);
+      setSelectedResultPlayerId(null);
       applyBoardConfig(session.board);
       setVsInfo(`已加入對局 #${session.matchId}`);
     } catch (e) {
@@ -281,6 +303,10 @@ function App() {
     if (mode !== "versus" || !vsMatch) return;
     if (!vsState || vsState.status !== "active") {
       setVsError("雙方尚未準備，無法操作");
+      return;
+    }
+    if (preStartLeft !== null && preStartLeft > 0) {
+      setVsError("對局即將開始，請稍候");
       return;
     }
     try {
@@ -324,6 +350,10 @@ function App() {
         setVsError("對局尚未開始");
         return;
       }
+      if (preStartLeft !== null && preStartLeft > 0) {
+        setVsError("對局即將開始，請稍候");
+        return;
+      }
     }
     revealCell(x, y);
     const nextCount = vsStepCount + 1;
@@ -338,6 +368,10 @@ function App() {
         setVsError("對局尚未開始");
         return;
       }
+      if (preStartLeft !== null && preStartLeft > 0) {
+        setVsError("對局即將開始，請稍候");
+        return;
+      }
     }
     toggleFlag(x, y);
     const nextCount = vsStepCount + 1;
@@ -350,6 +384,10 @@ function App() {
       if (vsMatch?.status === "finished") return;
       if (!vsState || vsState.status !== "active") {
         setVsError("對局尚未開始");
+        return;
+      }
+      if (preStartLeft !== null && preStartLeft > 0) {
+        setVsError("對局即將開始，請稍候");
         return;
       }
     }
@@ -437,7 +475,12 @@ function App() {
             </div>
           </div>
 
-          <div className="w-max">
+          <div className="w-max relative">
+            {mode === "versus" && vsState?.status === "active" && preStartLeft !== null && preStartLeft > 0 && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/50 text-white text-2xl font-semibold rounded-xl">
+                對局將在 {preStartLeft} 秒後開始
+              </div>
+            )}
             <Board board={board} onReveal={handleReveal} onFlag={handleFlag} onChord={handleChord} />
           </div>
         </div>
@@ -534,7 +577,14 @@ function App() {
                     <p>
                       棋盤：{vsMatch.board.width}x{vsMatch.board.height}，雷 {vsMatch.board.mines}
                     </p>
-                    <p>倒數：{vsState?.started_at ? formatCountdown(countdownLeft) : "等待開始"}</p>
+                    <p>
+                      倒數：
+                      {vsState?.started_at
+                        ? preStartLeft && preStartLeft > 0
+                          ? `準備中 ${preStartLeft}s`
+                          : formatCountdown(matchCountdownLeft)
+                        : "等待開始"}
+                    </p>
                     <div className="space-y-1">
                       {(vsState?.players ?? []).map((p) => (
                         <div key={p.id} className="flex items-center justify-between text-sm">
@@ -593,33 +643,52 @@ function App() {
                 )}
               </div>
 
-              {vsMatch && vsState?.status === "finished" && (
-                <div className="bg-[var(--surface)] rounded-xl border border-[var(--border)] shadow p-4 space-y-3">
-                  <h2 className="text-lg font-semibold">對戰棋盤</h2>
-                  <div className="grid md:grid-cols-2 gap-4">
-                    {vsState.players.map((p) => {
-                      const snap = getProgressBoard(p.progress ?? null);
-                      return (
-                        <div key={p.id} className="space-y-2">
-                          <div className="flex items-center justify-between">
-                            <span className="font-semibold">{p.name}</span>
-                            <span className="text-sm opacity-80">{p.result ?? "完成"}</span>
-                          </div>
-                          {snap ? (
-                            <Board board={snap} onReveal={() => {}} onFlag={() => {}} onChord={() => {}} />
-                          ) : (
-                            <p className="text-sm opacity-70">沒有棋盤紀錄</p>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
             </>
           )}
         </div>
       </section>
+
+      {mode === "versus" && vsMatch && vsState?.status === "finished" && (
+        <section className="space-y-4">
+          <div className="bg-[var(--surface)] rounded-xl border border-[var(--border)] shadow p-4 space-y-3">
+            <h2 className="text-lg font-semibold">對戰棋盤</h2>
+            <div className="flex flex-wrap gap-2">
+              {vsState.players.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => setSelectedResultPlayerId(p.id)}
+                  className={`px-3 py-1 rounded-full text-sm border ${
+                    selectedResultPlayerId === p.id
+                      ? "bg-[var(--accent)] text-white border-transparent"
+                      : "bg-[var(--surface-strong)] border-[var(--border)]"
+                  }`}
+                >
+                  {p.name} ({p.result ?? "進行中"})
+                </button>
+              ))}
+            </div>
+
+            {(() => {
+              const p = vsState.players.find((pl) => pl.id === selectedResultPlayerId) ?? vsState.players[0];
+              const snap = p ? getProgressBoard(p.progress ?? null) : null;
+              if (!p) return <p className="text-sm opacity-70">沒有棋盤紀錄</p>;
+              return (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold">{p.name}</span>
+                    <span className="text-sm opacity-80">{p.result ?? "完成"}</span>
+                  </div>
+                  {snap ? (
+                    <Board board={snap} onReveal={() => {}} onFlag={() => {}} onChord={() => {}} />
+                  ) : (
+                    <p className="text-sm opacity-70">沒有棋盤紀錄</p>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
+        </section>
+      )}
     </div>
   );
 }
