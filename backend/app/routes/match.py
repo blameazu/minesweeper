@@ -76,7 +76,8 @@ def _apply_timeout(session: Session, match: Match) -> list[MatchPlayer]:
     if match.status == MatchStatus.finished or not match.started_at:
         return players
 
-    deadline = match.started_at + timedelta(seconds=match.countdown_secs)
+    countdown_secs = match.countdown_secs or 300
+    deadline = match.started_at + timedelta(seconds=countdown_secs)
     now = datetime.utcnow()
     if now < deadline:
         return players
@@ -163,6 +164,8 @@ async def set_ready(match_id: int, payload: MatchReady, session: Session = Depen
     if len(players) == 2 and all(p.ready for p in players) and match.status != MatchStatus.finished:
         match.status = MatchStatus.active
         match.started_at = match.started_at or datetime.utcnow()
+        if not match.countdown_secs:
+            match.countdown_secs = 300
 
     session.commit()
     session.refresh(match)
@@ -173,6 +176,7 @@ async def set_ready(match_id: int, payload: MatchReady, session: Session = Depen
 async def get_match_state(match_id: int, session: Session = Depends(get_session)):
     match = _get_match(session, match_id)
     players = _apply_timeout(session, match)
+    countdown_secs = match.countdown_secs or 300
     return MatchState(
         id=match.id,
         status=match.status.value,
@@ -184,7 +188,7 @@ async def get_match_state(match_id: int, session: Session = Depends(get_session)
         created_at=match.created_at,
         started_at=match.started_at,
         ended_at=match.ended_at,
-        countdown_secs=match.countdown_secs,
+        countdown_secs=countdown_secs,
         players=[_player_to_schema(p) for p in players],
     )
 

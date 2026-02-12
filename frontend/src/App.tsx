@@ -283,10 +283,6 @@ function App() {
       setVsError("雙方尚未準備，無法操作");
       return;
     }
-    if (countdownLeft !== null && countdownLeft <= 0) {
-      setVsError("時間已到");
-      return;
-    }
     try {
       await sendMatchStep(vsMatch.matchId, {
         playerToken: vsMatch.playerToken,
@@ -328,10 +324,6 @@ function App() {
         setVsError("對局尚未開始");
         return;
       }
-      if (countdownLeft !== null && countdownLeft <= 0) {
-        setVsError("時間已到");
-        return;
-      }
     }
     revealCell(x, y);
     const nextCount = vsStepCount + 1;
@@ -346,10 +338,6 @@ function App() {
         setVsError("對局尚未開始");
         return;
       }
-      if (countdownLeft !== null && countdownLeft <= 0) {
-        setVsError("時間已到");
-        return;
-      }
     }
     toggleFlag(x, y);
     const nextCount = vsStepCount + 1;
@@ -362,10 +350,6 @@ function App() {
       if (vsMatch?.status === "finished") return;
       if (!vsState || vsState.status !== "active") {
         setVsError("對局尚未開始");
-        return;
-      }
-      if (countdownLeft !== null && countdownLeft <= 0) {
-        setVsError("時間已到");
         return;
       }
     }
