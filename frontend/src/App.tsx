@@ -100,10 +100,11 @@ function App() {
   const matchCountdownLeft = useMemo(() => {
     const startMs = parseUtcMillis(vsState?.started_at);
     if (startMs === null) return null;
-    const endMs = startMs + (vsState.countdown_secs ?? 0) * 1000;
+    const secs = vsState?.countdown_secs ?? 0;
+    const endMs = startMs + secs * 1000;
     const anchor = Math.max(now, startMs); // do not count down before start
     return Math.max(0, Math.floor((endMs - anchor) / 1000));
-  }, [vsState?.started_at, vsState.countdown_secs, now]);
+  }, [vsState?.started_at, vsState?.countdown_secs, now]);
 
   useEffect(() => {
     if (mode !== "versus") return;

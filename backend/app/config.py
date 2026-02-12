@@ -5,7 +5,8 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     app_name: str = "Minesweeper API"
     db_url: str = "sqlite:///./minesweeper.db"
-    cors_origins: str = "http://localhost:5173"
+    # Allow both localhost and 127.0.0.1 by default; can be overridden via env var
+    cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
     class Config:
         env_file = ".env"
