@@ -2,14 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import { Board } from "./components/Board";
 import { useGameStore } from "./state/gameStore";
 import { difficultiesList, remainingMines } from "./lib/engine";
-import type { DifficultyKey, LeaderboardEntry, MatchSession, MatchState, MatchStep } from "./types";
+import type { DifficultyKey, LeaderboardEntry, MatchSession, MatchState, MatchProgress, BoardState } from "./types";
 import {
   createMatch,
   fetchLeaderboard,
   fetchMatchState,
-  fetchMatchSteps,
   finishMatch,
   joinMatch,
+  setReady,
   sendMatchStep,
   submitScore
 } from "./services/api";
@@ -17,6 +17,13 @@ import {
 const formatMs = (ms: number | null | undefined) => {
   if (ms === null || ms === undefined || Number.isNaN(ms)) return "--";
   return (ms / 1000).toFixed(2);
+};
+
+const formatCountdown = (secs: number | null | undefined) => {
+  if (secs === null || secs === undefined || Number.isNaN(secs)) return "--:--";
+  const m = Math.floor(secs / 60);
+  const s = Math.max(0, secs % 60);
+  return `${m}:${s.toString().padStart(2, "0")}`;
 };
 
 function App() {
@@ -32,18 +39,18 @@ function App() {
   const [vsName, setVsName] = useState("");
   const [vsMatch, setVsMatch] = useState<MatchSession | null>(null);
   const [vsState, setVsState] = useState<MatchState | null>(null);
-  const [vsSteps, setVsSteps] = useState<MatchStep[]>([]);
   const [vsError, setVsError] = useState<string | null>(null);
   const [vsInfo, setVsInfo] = useState<string | null>(null);
   const [joinId, setJoinId] = useState("");
   const [vsStepCount, setVsStepCount] = useState(0);
+  const [vsProgressUploaded, setVsProgressUploaded] = useState(false);
 
   useEffect(() => {
-    if (board.startedAt && !board.endedAt) {
-      const t = setInterval(() => setNow(Date.now()), 100);
-      return () => clearInterval(t);
-    }
-  }, [board.startedAt, board.endedAt]);
+    const shouldTick = (board.startedAt && !board.endedAt) || (mode === "versus" && vsState?.status === "active");
+    if (!shouldTick) return;
+    const t = setInterval(() => setNow(Date.now()), 200);
+    return () => clearInterval(t);
+  }, [mode, board.startedAt, board.endedAt, vsState?.status]);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -60,6 +67,26 @@ function App() {
     if (board.status === "lost") return "踩到雷 QQ";
     return "進行中";
   }, [board.status]);
+
+  const myPlayer = useMemo(() => {
+    if (!vsMatch || !vsState) return null;
+    return vsState.players.find((p) => p.id === vsMatch.playerId) ?? null;
+  }, [vsMatch, vsState]);
+
+  const opponent = useMemo(() => {
+    if (!vsState || !vsMatch) return null;
+    return vsState.players.find((p) => p.id !== vsMatch.playerId) ?? null;
+  }, [vsState, vsMatch]);
+
+  const countdownDeadline = useMemo(() => {
+    if (!vsState?.started_at) return null;
+    return new Date(vsState.started_at).getTime() + (vsState.countdown_secs ?? 0) * 1000;
+  }, [vsState?.started_at, vsState?.countdown_secs]);
+
+  const countdownLeft = useMemo(() => {
+    if (!countdownDeadline) return null;
+    return Math.max(0, Math.floor((countdownDeadline - now) / 1000));
+  }, [countdownDeadline, now]);
 
   const loadLeaderboard = async (difficulty: DifficultyKey) => {
     try {
@@ -87,10 +114,6 @@ function App() {
         if (cancelled) return;
         setVsState(state);
         setVsMatch((m) => (m ? { ...m, status: state.status } : m));
-        if (state.status === "finished" && vsSteps.length === 0) {
-          const steps = await fetchMatchSteps(vsMatch.matchId);
-          if (!cancelled) setVsSteps(steps);
-        }
       } catch (err) {
         if (!cancelled) setVsError(err instanceof Error ? err.message : "對局狀態讀取失敗");
       }
@@ -101,7 +124,30 @@ function App() {
       cancelled = true;
       clearInterval(id);
     };
-  }, [mode, vsMatch?.matchId, vsSteps.length]);
+  }, [mode, vsMatch?.matchId]);
+
+  useEffect(() => {
+    if (!vsMatch || !vsState) return;
+    if (vsState.status !== "finished") {
+      setVsProgressUploaded(false);
+      return;
+    }
+    if (vsProgressUploaded) return;
+    if (myPlayer?.progress) {
+      setVsProgressUploaded(true);
+      return;
+    }
+
+    const snapshot = useGameStore.getState().board;
+    const outcome = myPlayer?.result ?? "draw";
+    finishMatch(vsMatch.matchId, {
+      playerToken: vsMatch.playerToken,
+      outcome: outcome as "win" | "lose" | "draw" | "forfeit",
+      steps_count: myPlayer?.steps_count ?? vsStepCount,
+      duration_ms: myPlayer?.duration_ms ?? undefined,
+      progress: { board: snapshot }
+    }).finally(() => setVsProgressUploaded(true));
+  }, [myPlayer, vsMatch, vsProgressUploaded, vsState, vsStepCount]);
 
   const handleDifficulty = (key: DifficultyKey) => {
     if (mode === "versus") {
@@ -133,6 +179,12 @@ function App() {
     setDifficulty("custom", { width: config.width, height: config.height, mines: config.mines, seed: config.seed });
   };
 
+  const getProgressBoard = (progress?: MatchProgress | null): BoardState | null => {
+    const boardSnapshot = progress?.board as BoardState | undefined;
+    if (!boardSnapshot || !Array.isArray(boardSnapshot.cells)) return null;
+    return boardSnapshot;
+  };
+
   const handleCreateMatch = async () => {
     if (!vsName.trim()) {
       setVsError("請輸入暱稱");
@@ -152,8 +204,8 @@ function App() {
       });
       setVsMatch({ ...session, status: "pending" });
       setVsState(null);
-      setVsSteps([]);
       setVsStepCount(0);
+      setVsProgressUploaded(false);
       applyBoardConfig(session.board);
       setVsInfo(`已建立對局，分享 ID: ${session.matchId}`);
     } catch (e) {
@@ -177,8 +229,8 @@ function App() {
       const session = await joinMatch(idNum, { player: vsName.trim() });
       setVsMatch(session);
       setVsState(null);
-      setVsSteps([]);
       setVsStepCount(0);
+      setVsProgressUploaded(false);
       applyBoardConfig(session.board);
       setVsInfo(`已加入對局 #${session.matchId}`);
     } catch (e) {
@@ -186,8 +238,30 @@ function App() {
     }
   };
 
+  const handleSetReady = async () => {
+    if (!vsMatch) {
+      setVsError("尚未加入對局");
+      return;
+    }
+    try {
+      setVsError(null);
+      setVsInfo("等待對手準備...");
+      await setReady(vsMatch.matchId, { playerToken: vsMatch.playerToken, ready: true });
+    } catch (e) {
+      setVsError(e instanceof Error ? e.message : "設定準備失敗");
+    }
+  };
+
   const sendStepIfNeeded = async (action: "reveal" | "flag" | "chord", x: number, y: number, nextStepCount: number) => {
     if (mode !== "versus" || !vsMatch) return;
+    if (!vsState || vsState.status !== "active") {
+      setVsError("雙方尚未準備，無法操作");
+      return;
+    }
+    if (countdownLeft !== null && countdownLeft <= 0) {
+      setVsError("時間已到");
+      return;
+    }
     try {
       await sendMatchStep(vsMatch.matchId, {
         playerToken: vsMatch.playerToken,
@@ -211,7 +285,8 @@ function App() {
           playerToken: vsMatch.playerToken,
           outcome: current.status === "won" ? "win" : "lose",
           duration_ms: elapsedMs,
-          steps_count: vsStepCount
+          steps_count: vsStepCount,
+          progress: { board: current }
         });
         setVsMatch({ ...vsMatch, status: current.status === "won" ? "finished" : vsMatch.status });
         setVsInfo(current.status === "won" ? "你完成了！" : "你踩雷了");
@@ -222,7 +297,17 @@ function App() {
   };
 
   const handleReveal = async (x: number, y: number) => {
-    if (mode === "versus" && vsMatch?.status === "finished") return;
+    if (mode === "versus") {
+      if (vsMatch?.status === "finished") return;
+      if (!vsState || vsState.status !== "active") {
+        setVsError("對局尚未開始");
+        return;
+      }
+      if (countdownLeft !== null && countdownLeft <= 0) {
+        setVsError("時間已到");
+        return;
+      }
+    }
     revealCell(x, y);
     const nextCount = vsStepCount + 1;
     await sendStepIfNeeded("reveal", x, y, nextCount);
@@ -230,7 +315,17 @@ function App() {
   };
 
   const handleFlag = async (x: number, y: number) => {
-    if (mode === "versus" && vsMatch?.status === "finished") return;
+    if (mode === "versus") {
+      if (vsMatch?.status === "finished") return;
+      if (!vsState || vsState.status !== "active") {
+        setVsError("對局尚未開始");
+        return;
+      }
+      if (countdownLeft !== null && countdownLeft <= 0) {
+        setVsError("時間已到");
+        return;
+      }
+    }
     toggleFlag(x, y);
     const nextCount = vsStepCount + 1;
     await sendStepIfNeeded("flag", x, y, nextCount);
@@ -238,7 +333,17 @@ function App() {
   };
 
   const handleChord = async (x: number, y: number) => {
-    if (mode === "versus" && vsMatch?.status === "finished") return;
+    if (mode === "versus") {
+      if (vsMatch?.status === "finished") return;
+      if (!vsState || vsState.status !== "active") {
+        setVsError("對局尚未開始");
+        return;
+      }
+      if (countdownLeft !== null && countdownLeft <= 0) {
+        setVsError("時間已到");
+        return;
+      }
+    }
     chordCell(x, y);
     const nextCount = vsStepCount + 1;
     await sendStepIfNeeded("chord", x, y, nextCount);
@@ -415,41 +520,55 @@ function App() {
                 {!vsMatch ? (
                   <p className="text-sm opacity-70">建立或加入一場對局</p>
                 ) : (
-                  <div className="space-y-2 text-sm">
-                    <p>狀態：{vsMatch.status}</p>
+                  <div className="space-y-3 text-sm">
+                    <p>狀態：{vsState?.status ?? vsMatch.status}</p>
                     <p>
                       棋盤：{vsMatch.board.width}x{vsMatch.board.height}，雷 {vsMatch.board.mines}
                     </p>
-                    {vsState && (
-                      <div className="space-y-1">
-                        {vsState.players.map((p) => (
-                          <div key={p.id} className="flex items-center justify-between text-sm">
-                            <span>{p.name}</span>
-                            <span className="opacity-70">{p.result ?? "進行中"}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                    <p>倒數：{vsState?.started_at ? formatCountdown(countdownLeft) : "等待開始"}</p>
+                    <div className="space-y-1">
+                      {(vsState?.players ?? []).map((p) => (
+                        <div key={p.id} className="flex items-center justify-between text-sm">
+                          <span>{p.name}</span>
+                          <span className="opacity-70 flex items-center gap-2">
+                            <span>{p.ready ? "已準備" : "未準備"}</span>
+                            <span>{p.result ?? "進行中"}</span>
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    <button
+                      onClick={handleSetReady}
+                      disabled={myPlayer?.ready || vsState?.status === "active" || vsState?.status === "finished"}
+                      className="w-full rounded bg-[var(--accent-strong)] text-white py-2 disabled:opacity-60"
+                    >
+                      {myPlayer?.ready ? "已準備" : "我已準備"}
+                    </button>
                   </div>
                 )}
               </div>
 
               {vsMatch && vsState?.status === "finished" && (
                 <div className="bg-[var(--surface)] rounded-xl border border-[var(--border)] shadow p-4 space-y-3">
-                  <h2 className="text-lg font-semibold">對戰步驟</h2>
-                  {vsSteps.length === 0 ? (
-                    <p className="text-sm opacity-70">載入中...</p>
-                  ) : (
-                    <ol className="space-y-2 max-h-64 overflow-auto text-sm font-mono">
-                      {vsSteps.map((s, idx) => (
-                        <li key={`${idx}-${s.created_at}`} className="flex justify-between">
-                          <span className="opacity-70">#{s.seq ?? idx + 1}</span>
-                          <span>{s.player_name}</span>
-                          <span>{s.action} ({s.x},{s.y})</span>
-                        </li>
-                      ))}
-                    </ol>
-                  )}
+                  <h2 className="text-lg font-semibold">對戰棋盤</h2>
+                  <div className="grid md:grid-cols-2 gap-4">
+                    {vsState.players.map((p) => {
+                      const snap = getProgressBoard(p.progress ?? null);
+                      return (
+                        <div key={p.id} className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="font-semibold">{p.name}</span>
+                            <span className="text-sm opacity-80">{p.result ?? "完成"}</span>
+                          </div>
+                          {snap ? (
+                            <Board board={snap} onReveal={() => {}} onFlag={() => {}} onChord={() => {}} />
+                          ) : (
+                            <p className="text-sm opacity-70">沒有棋盤紀錄</p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
             </>

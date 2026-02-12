@@ -29,6 +29,7 @@ class Match(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     started_at: Optional[datetime] = None
     ended_at: Optional[datetime] = None
+    countdown_secs: int = Field(default=300)
 
 
 class MatchPlayer(SQLModel, table=True):
@@ -41,6 +42,8 @@ class MatchPlayer(SQLModel, table=True):
     steps_count: int = Field(default=0)
     finished_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    ready: bool = Field(default=False)
+    progress: Optional[str] = Field(default=None)  # JSON string of client-provided progress snapshot
 
 
 class MatchStep(SQLModel, table=True):

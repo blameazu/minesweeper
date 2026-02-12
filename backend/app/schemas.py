@@ -27,6 +27,7 @@ class MatchCreate(BaseModel):
     mines: int
     seed: Optional[str] = None
     difficulty: Optional[str] = None
+    countdown_secs: Optional[int] = None
 
 
 class MatchJoin(BaseModel):
@@ -40,6 +41,8 @@ class MatchStatePlayer(BaseModel):
     duration_ms: Optional[int]
     steps_count: int
     finished_at: Optional[datetime]
+    ready: bool
+    progress: Optional[dict] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -55,10 +58,12 @@ class MatchState(BaseModel):
     created_at: datetime
     started_at: Optional[datetime]
     ended_at: Optional[datetime]
+    countdown_secs: int
     players: list[MatchStatePlayer]
 
 
 class MatchCreateResponse(BaseModel):
+    countdown_secs: int
     match_id: int
     player_id: int
     player_token: str
@@ -85,6 +90,12 @@ class MatchFinish(BaseModel):
     outcome: Literal["win", "lose", "draw", "forfeit"]
     duration_ms: Optional[int] = None
     steps_count: Optional[int] = None
+    progress: Optional[dict] = None
+
+
+class MatchReady(BaseModel):
+    player_token: str
+    ready: bool = True
 
 
 class MatchStepRead(BaseModel):

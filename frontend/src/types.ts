@@ -45,6 +45,10 @@ export interface MatchBoard {
   difficulty?: string | null;
 }
 
+export interface MatchProgress {
+  board?: BoardState;
+}
+
 export interface MatchStatePlayer {
   id: number;
   name: string;
@@ -52,6 +56,8 @@ export interface MatchStatePlayer {
   duration_ms?: number | null;
   steps_count: number;
   finished_at?: string | null;
+  ready: boolean;
+  progress?: MatchProgress | null;
 }
 
 export interface MatchState {
@@ -65,6 +71,7 @@ export interface MatchState {
   created_at: string;
   started_at?: string | null;
   ended_at?: string | null;
+  countdown_secs: number;
   players: MatchStatePlayer[];
 }
 
@@ -84,4 +91,5 @@ export interface MatchSession {
   playerToken: string;
   board: MatchBoard;
   status: string;
+  countdown_secs?: number;
 }

@@ -1,4 +1,5 @@
-from datetime import datetime
+from datetime import datetime, timedelta
+import json
 import secrets
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
@@ -17,6 +18,7 @@ from ..schemas import (
     MatchStatePlayer,
     MatchStepCreate,
     MatchStepRead,
+    MatchReady,
 )
 
 router = APIRouter(prefix="/api/match", tags=["match"])
@@ -43,6 +45,58 @@ def _ensure_joinable(session: Session, match: Match) -> None:
         raise HTTPException(status_code=400, detail="match already has two players")
 
 
+def _list_players(session: Session, match: Match) -> list[MatchPlayer]:
+    stmt = select(MatchPlayer).where(MatchPlayer.match_id == match.id)
+    return session.exec(stmt).all()
+
+
+def _player_to_schema(player: MatchPlayer) -> MatchStatePlayer:
+    progress = None
+    if player.progress:
+        try:
+            progress = json.loads(player.progress)
+        except json.JSONDecodeError:
+            progress = None
+    return MatchStatePlayer(
+        id=player.id,
+        name=player.name,
+        result=player.result,
+        duration_ms=player.duration_ms,
+        steps_count=player.steps_count,
+        finished_at=player.finished_at,
+        ready=player.ready,
+        progress=progress,
+    )
+
+
+def _apply_timeout(session: Session, match: Match) -> list[MatchPlayer]:
+    players = _list_players(session, match)
+    if match.status == MatchStatus.finished or not match.started_at:
+        return players
+
+    deadline = match.started_at + timedelta(seconds=match.countdown_secs)
+    now = datetime.utcnow()
+    if now < deadline:
+        return players
+
+    unfinished = [p for p in players if not p.result]
+    if unfinished:
+        if len(unfinished) == len(players):
+            for p in unfinished:
+                p.result = "draw"
+                p.finished_at = now
+        else:
+            for p in unfinished:
+                p.result = "lose"
+                p.finished_at = now
+    match.status = MatchStatus.finished
+    match.ended_at = now
+
+    session.commit()
+    session.refresh(match)
+    return _list_players(session, match)
+
+
 @router.post("", response_model=MatchCreateResponse)
 async def create_match(payload: MatchCreate, session: Session = Depends(get_session)):
     match = Match(
@@ -51,6 +105,7 @@ async def create_match(payload: MatchCreate, session: Session = Depends(get_sess
         mines=payload.mines,
         seed=payload.seed or secrets.token_hex(8),
         difficulty=payload.difficulty,
+        countdown_secs=payload.countdown_secs if payload.countdown_secs is not None else 300,
     )
     session.add(match)
     session.commit()
@@ -63,6 +118,7 @@ async def create_match(payload: MatchCreate, session: Session = Depends(get_sess
     session.refresh(player)
 
     return MatchCreateResponse(
+        countdown_secs=match.countdown_secs,
         match_id=match.id,
         player_id=player.id,
         player_token=token,
@@ -79,13 +135,6 @@ async def join_match(match_id: int, payload: MatchJoin, session: Session = Depen
     player = MatchPlayer(match_id=match.id, name=payload.player, token=token)
     session.add(player)
 
-    # If this is the second player, mark match as active
-    stmt = select(MatchPlayer).where(MatchPlayer.match_id == match.id)
-    existing = session.exec(stmt).all()
-    if len(existing) == 1:
-        match.status = MatchStatus.active
-        match.started_at = datetime.utcnow()
-
     session.commit()
     session.refresh(player)
     session.refresh(match)
@@ -98,11 +147,30 @@ async def join_match(match_id: int, payload: MatchJoin, session: Session = Depen
     )
 
 
+@router.post("/{match_id}/ready")
+async def set_ready(match_id: int, payload: MatchReady, session: Session = Depends(get_session)):
+    match = _get_match(session, match_id)
+    player = _get_player_by_token(session, payload.player_token)
+    if not player or player.match_id != match.id:
+        raise HTTPException(status_code=403, detail="invalid player token")
+    if match.status == MatchStatus.finished:
+        raise HTTPException(status_code=400, detail="match finished")
+
+    player.ready = payload.ready
+    players = _list_players(session, match)
+    if len(players) == 2 and all(p.ready for p in players) and match.status != MatchStatus.finished:
+        match.status = MatchStatus.active
+        match.started_at = match.started_at or datetime.utcnow()
+
+    session.commit()
+    session.refresh(match)
+    return {"ok": True, "status": match.status.value, "started_at": match.started_at, "countdown_secs": match.countdown_secs}
+
+
 @router.get("/{match_id}/state", response_model=MatchState)
 async def get_match_state(match_id: int, session: Session = Depends(get_session)):
     match = _get_match(session, match_id)
-    stmt = select(MatchPlayer).where(MatchPlayer.match_id == match.id)
-    players = session.exec(stmt).all()
+    players = _apply_timeout(session, match)
     return MatchState(
         id=match.id,
         status=match.status.value,
@@ -114,7 +182,8 @@ async def get_match_state(match_id: int, session: Session = Depends(get_session)
         created_at=match.created_at,
         started_at=match.started_at,
         ended_at=match.ended_at,
-        players=[MatchStatePlayer.model_validate(p) for p in players],
+        countdown_secs=match.countdown_secs,
+        players=[_player_to_schema(p) for p in players],
     )
 
 
@@ -124,12 +193,9 @@ async def submit_step(match_id: int, payload: MatchStepCreate, session: Session 
     player = _get_player_by_token(session, payload.player_token)
     if not player or player.match_id != match.id:
         raise HTTPException(status_code=403, detail="invalid player token")
-    if match.status == MatchStatus.finished:
-        raise HTTPException(status_code=400, detail="match finished")
-
-    if match.status == MatchStatus.pending:
-        match.status = MatchStatus.active
-        match.started_at = match.started_at or datetime.utcnow()
+    players = _apply_timeout(session, match)
+    if match.status != MatchStatus.active:
+        raise HTTPException(status_code=400, detail="match not active")
 
     stmt = select(MatchStep).where(MatchStep.match_id == match.id, MatchStep.player_id == player.id).order_by(MatchStep.seq.desc())
     last_step = session.exec(stmt).first()
@@ -157,7 +223,11 @@ async def finish_match(match_id: int, payload: MatchFinish, session: Session = D
     if not player or player.match_id != match.id:
         raise HTTPException(status_code=403, detail="invalid player token")
 
+    players = _apply_timeout(session, match)
     if player.result:
+        if payload.progress is not None and player.progress is None:
+            player.progress = json.dumps(payload.progress)
+            session.commit()
         return {"ok": True}
 
     now = datetime.utcnow()
@@ -165,10 +235,11 @@ async def finish_match(match_id: int, payload: MatchFinish, session: Session = D
     player.duration_ms = payload.duration_ms
     player.steps_count = payload.steps_count or player.steps_count
     player.finished_at = now
+    if payload.progress is not None:
+        player.progress = json.dumps(payload.progress)
 
     # Determine match status/outcomes
-    stmt = select(MatchPlayer).where(MatchPlayer.match_id == match.id)
-    players = session.exec(stmt).all()
+    players = _list_players(session, match)
     other_players = [p for p in players if p.id != player.id]
 
     if payload.outcome == "win":
@@ -218,6 +289,7 @@ async def match_history(player: str, session: Session = Depends(get_session)):
     rows = session.exec(stmt).all()
     history: list[MatchHistoryItem] = []
     for mp, match in rows:
+        _apply_timeout(session, match)
         history.append(
             MatchHistoryItem(
                 match_id=match.id,

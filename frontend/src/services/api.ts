@@ -60,7 +60,8 @@ export const createMatch = async (params: {
     playerId: data.player_id,
     playerToken: data.player_token,
     board: data.board as MatchBoard,
-    status: "pending"
+    status: "pending",
+    countdown_secs: data.countdown_secs ?? 300
   };
 };
 
@@ -103,7 +104,16 @@ export const sendMatchStep = async (matchId: number, params: { playerToken: stri
   return res.json();
 };
 
-export const finishMatch = async (matchId: number, params: { playerToken: string; outcome: "win" | "lose" | "draw" | "forfeit"; duration_ms?: number; steps_count?: number }) => {
+export const finishMatch = async (
+  matchId: number,
+  params: {
+    playerToken: string;
+    outcome: "win" | "lose" | "draw" | "forfeit";
+    duration_ms?: number;
+    steps_count?: number;
+    progress?: Record<string, unknown>;
+  }
+) => {
   const res = await fetch(`${API_BASE}/api/match/${matchId}/finish`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...NGROK_HEADER },
@@ -111,10 +121,24 @@ export const finishMatch = async (matchId: number, params: { playerToken: string
       player_token: params.playerToken,
       outcome: params.outcome,
       duration_ms: params.duration_ms,
-      steps_count: params.steps_count
+      steps_count: params.steps_count,
+      progress: params.progress
     })
   });
   if (!res.ok) throw new Error(`結束對局失敗 (${res.status})`);
+  return res.json();
+};
+
+export const setReady = async (matchId: number, params: { playerToken: string; ready: boolean }) => {
+  const res = await fetch(`${API_BASE}/api/match/${matchId}/ready`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...NGROK_HEADER },
+    body: JSON.stringify({
+      player_token: params.playerToken,
+      ready: params.ready
+    })
+  });
+  if (!res.ok) throw new Error(`設定準備失敗 (${res.status})`);
   return res.json();
 };
 
