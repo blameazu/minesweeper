@@ -2,46 +2,61 @@
 @tailwind components;
 @tailwind utilities;
 
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&family=Noto+Sans+TC:wght@400;600&display=swap');
+
 :root {
   color-scheme: light;
-  --bg-body: radial-gradient(circle at 20% 20%, #f1f5f9, #e2e8f0 45%, #cbd5e1 100%);
-  --surface: #f8fafc;
+  --bg-body: radial-gradient(120% 120% at 15% 20%, #e7f6ff 0%, #f7f2ff 35%, #fff4e5 70%);
+  --surface: #fdfdfd;
   --surface-strong: #ffffff;
-  --border: #e2e8f0;
+  --border: #d7dce6;
   --text-primary: #0f172a;
-  --accent: #34d399;
-  --accent-strong: #10b981;
-  --cell-bg: #e2e8f0;
-  --cell-hover: #cbd5e1;
-  --cell-revealed: #f8fafc;
-  --cell-mine: #fee2e2;
-  --cell-border: #cbd5e1;
+  --accent: #f97316;
+  --accent-strong: #ea580c;
+  --cell-bg: #e7edf7;
+  --cell-hover: #d9e2f0;
+  --cell-revealed: #fdfbf7;
+  --cell-mine: #ffe1e1;
+  --cell-border: #d9e2f0;
   --cell-border-strong: #94a3b8;
 }
 
 [data-theme='dark'] {
   color-scheme: dark;
-  --bg-body: radial-gradient(circle at 20% 20%, #0f172a, #0b1221 55%, #050914 100%);
-  --surface: #0f172a;
-  --surface-strong: #111827;
+  --bg-body: radial-gradient(120% 120% at 15% 20%, #0f172a 0%, #0b1221 45%, #0a0f1d 80%);
+  --surface: rgba(16, 24, 40, 0.85);
+  --surface-strong: rgba(17, 24, 39, 0.95);
   --border: #1f2937;
   --text-primary: #e5e7eb;
-  --accent: #22c55e;
-  --accent-strong: #16a34a;
-  --cell-bg: #1f2937;
-  --cell-hover: #273549;
-  --cell-revealed: #111827;
+  --accent: #fb923c;
+  --accent-strong: #f97316;
+  --cell-bg: #16233a;
+  --cell-hover: #1f2d47;
+  --cell-revealed: #0f172a;
   --cell-mine: #7f1d1d;
-  --cell-border: #273549;
+  --cell-border: #243044;
   --cell-border-strong: #334155;
 }
 
 body {
   margin: 0;
-  font-family: 'Inter', 'Noto Sans TC', system-ui, -apple-system, sans-serif;
+  font-family: 'Space Grotesk', 'Noto Sans TC', system-ui, -apple-system, sans-serif;
   background: var(--bg-body);
   min-height: 100vh;
   color: var(--text-primary);
+  position: relative;
+  overflow-x: hidden;
+}
+
+body::before,
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at 80% 10%, rgba(255, 122, 0, 0.08), transparent 40%),
+    radial-gradient(circle at 10% 80%, rgba(59, 130, 246, 0.12), transparent 35%);
+  z-index: -1;
 }
 
 button:focus-visible,

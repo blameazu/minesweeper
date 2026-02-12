@@ -1,4 +1,4 @@
-export type DifficultyKey = "beginner" | "intermediate" | "expert" | "custom";
+export type DifficultyKey = "beginner" | "intermediate" | "expert";
 
 export interface Difficulty {
   key: DifficultyKey;

@@ -42,6 +42,8 @@ const formatCountdown = (secs: number | null | undefined) => {
   return `${m}:${s.toString().padStart(2, "0")}`;
 };
 
+const VS_SESSION_KEY = "vs_session";
+
 const parseUtcMillis = (ts?: string | null) => {
   if (!ts) return null;
   const trimmed = ts.trim();
@@ -87,6 +89,51 @@ function App() {
   const [loadingProfile, setLoadingProfile] = useState(false);
 
   const isAuthenticated = !!currentUser && !!token;
+
+  // Rehydrate versus session after refresh using stored player token/id.
+  useEffect(() => {
+    const saved = localStorage.getItem(VS_SESSION_KEY);
+    if (!saved) return;
+    try {
+      const parsed = JSON.parse(saved) as { matchId: number; playerId: number; playerToken: string };
+      if (!parsed.matchId || !parsed.playerToken) return;
+      setMode("versus");
+      setView((v) => (v === "profile" ? "profile" : "versus"));
+      setIsSpectator(false);
+      setVsMatch({
+        matchId: parsed.matchId,
+        playerId: parsed.playerId,
+        playerToken: parsed.playerToken,
+        board: { width: board.width, height: board.height, mines: board.mines, seed: board.seed },
+        status: "pending"
+      });
+      setVsProgressUploaded(false);
+      setVsStepCount(0);
+      setSelectedResultPlayerId(null);
+
+      fetchMatchState(parsed.matchId)
+        .then((state) => {
+          applyBoardConfig({ width: state.width, height: state.height, mines: state.mines, seed: state.seed, difficulty: state.difficulty as DifficultyKey | null });
+          setVsState(state);
+          setVsMatch((m) =>
+            m
+              ? {
+                  ...m,
+                  status: state.status as MatchSession["status"],
+                  board: { width: state.width, height: state.height, mines: state.mines, seed: state.seed },
+                }
+              : m
+          );
+        })
+        .catch(() => {
+          localStorage.removeItem(VS_SESSION_KEY);
+          setVsMatch(null);
+          setVsState(null);
+        });
+    } catch {
+      localStorage.removeItem(VS_SESSION_KEY);
+    }
+  }, []);
 
   useEffect(() => {
     const shouldTick = (board.startedAt && !board.endedAt) || (mode === "versus" && !isSpectator && vsState?.status === "active");
@@ -231,6 +278,18 @@ function App() {
   useEffect(() => {
     loadLeaderboard(board.difficulty);
   }, [board.difficulty]);
+
+  // Persist versus session so browser refresh can resume.
+  useEffect(() => {
+    if (vsMatch && !isSpectator) {
+      localStorage.setItem(
+        VS_SESSION_KEY,
+        JSON.stringify({ matchId: vsMatch.matchId, playerId: vsMatch.playerId, playerToken: vsMatch.playerToken })
+      );
+    } else {
+      localStorage.removeItem(VS_SESSION_KEY);
+    }
+  }, [vsMatch, isSpectator]);
 
   useEffect(() => {
     if (mode !== "versus" || !vsMatch) return;
@@ -378,8 +437,9 @@ function App() {
     };
   }, [autoSubmitted, board.difficulty, board.endedAt, board.startedAt, board.status, elapsedMs, isAuthenticated, token, currentUser, submitting]);
 
-  const applyBoardConfig = (config: { width: number; height: number; mines: number; seed: string }) => {
-    setDifficulty("custom", { width: config.width, height: config.height, mines: config.mines, seed: config.seed });
+  const applyBoardConfig = (config: { width: number; height: number; mines: number; seed: string; difficulty?: DifficultyKey | null }) => {
+    const diff = config.difficulty ?? board.difficulty;
+    setDifficulty(diff, { width: config.width, height: config.height, mines: config.mines, seed: config.seed });
   };
 
   const getProgressBoard = (progress?: MatchProgress | null): BoardState | null => {
@@ -512,6 +572,7 @@ function App() {
     setVsProgressUploaded(false);
     setSelectedResultPlayerId(null);
     startFresh();
+    localStorage.removeItem(VS_SESSION_KEY);
   };
 
   const handleSpectate = async () => {

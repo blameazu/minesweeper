@@ -3,8 +3,7 @@ import type { BoardState, Cell, DifficultyKey } from "../types";
 const difficulties: Record<DifficultyKey, { width: number; height: number; mines: number }> = {
   beginner: { width: 9, height: 9, mines: 10 },
   intermediate: { width: 20, height: 20, mines: 50 },
-  expert: { width: 20, height: 20, mines: 99 },
-  custom: { width: 9, height: 9, mines: 10 }
+  expert: { width: 20, height: 20, mines: 99 }
 };
 
 const randomSeed = () => Math.random().toString(36).slice(2, 10);
@@ -82,7 +81,10 @@ const placeMines = (width: number, height: number, mines: number, seed: string, 
   return chosen;
 };
 
-export const createBoard = (difficulty: DifficultyKey, opts?: { width?: number; height?: number; mines?: number; seed?: string }) => {
+export const createBoard = (
+  difficulty: DifficultyKey,
+  opts?: { width?: number; height?: number; mines?: number; seed?: string }
+) => {
   const defaults = difficulties[difficulty];
   const width = opts?.width ?? defaults.width;
   const height = opts?.height ?? defaults.height;
@@ -222,6 +224,5 @@ export const createEmptyState = (
 export const difficultiesList = [
   { key: "beginner", label: "初階 (9x9, 10雷)" },
   { key: "intermediate", label: "中階 (20x20, 50雷)" },
-  { key: "expert", label: "高階 (20x20, 99雷)" },
-  { key: "custom", label: "自訂" }
+  { key: "expert", label: "高階 (20x20, 99雷)" }
 ] as const;

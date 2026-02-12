@@ -22,7 +22,8 @@ class LeaderboardRead(BaseModel):
 
 
 class MatchCreate(BaseModel):
-    player: constr(strip_whitespace=True, min_length=1, max_length=50)
+    # Frontend no longer sends player; backend uses current user handle.
+    player: Optional[str] = None
     width: int
     height: int
     mines: int
@@ -32,7 +33,8 @@ class MatchCreate(BaseModel):
 
 
 class MatchJoin(BaseModel):
-    player: constr(strip_whitespace=True, min_length=1, max_length=50)
+    # Frontend does not need to send this; keep optional for backward compatibility.
+    player: Optional[str] = None
 
 
 class MatchStatePlayer(BaseModel):
