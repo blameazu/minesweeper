@@ -1,0 +1,77 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --bg-body: radial-gradient(circle at 20% 20%, #f1f5f9, #e2e8f0 45%, #cbd5e1 100%);
+  --surface: #f8fafc;
+  --surface-strong: #ffffff;
+  --border: #e2e8f0;
+  --text-primary: #0f172a;
+  --accent: #34d399;
+  --accent-strong: #10b981;
+  --cell-bg: #e2e8f0;
+  --cell-hover: #cbd5e1;
+  --cell-revealed: #f8fafc;
+  --cell-mine: #fee2e2;
+  --cell-border: #cbd5e1;
+  --cell-border-strong: #94a3b8;
+}
+
+[data-theme='dark'] {
+  color-scheme: dark;
+  --bg-body: radial-gradient(circle at 20% 20%, #0f172a, #0b1221 55%, #050914 100%);
+  --surface: #0f172a;
+  --surface-strong: #111827;
+  --border: #1f2937;
+  --text-primary: #e5e7eb;
+  --accent: #22c55e;
+  --accent-strong: #16a34a;
+  --cell-bg: #1f2937;
+  --cell-hover: #273549;
+  --cell-revealed: #111827;
+  --cell-mine: #7f1d1d;
+  --cell-border: #273549;
+  --cell-border-strong: #334155;
+}
+
+body {
+  margin: 0;
+  font-family: 'Inter', 'Noto Sans TC', system-ui, -apple-system, sans-serif;
+  background: var(--bg-body);
+  min-height: 100vh;
+  color: var(--text-primary);
+}
+
+button:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.cell {
+  user-select: none;
+  transition: transform 120ms ease, background-color 120ms ease;
+  width: var(--cell-size, 36px);
+  height: var(--cell-size, 36px);
+  background: var(--cell-bg);
+  border-color: var(--cell-border);
+}
+
+.cell:active {
+  transform: translateY(1px);
+}
+
+.cell-hidden:hover {
+  background: var(--cell-hover);
+}
+
+.cell-revealed {
+  background: var(--cell-revealed);
+  border-color: var(--cell-border-strong);
+}
+
+.cell-mine {
+  background: var(--cell-mine);
+}
