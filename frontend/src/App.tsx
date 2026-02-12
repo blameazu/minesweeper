@@ -27,6 +27,15 @@ const formatCountdown = (secs: number | null | undefined) => {
   return `${m}:${s.toString().padStart(2, "0")}`;
 };
 
+const parseUtcMillis = (ts?: string | null) => {
+  if (!ts) return null;
+  const trimmed = ts.trim();
+  if (!trimmed) return null;
+  const withZone = /[zZ]|[+-]\d\d:?\d\d$/.test(trimmed) ? trimmed : `${trimmed}Z`;
+  const ms = Date.parse(withZone);
+  return Number.isNaN(ms) ? null : ms;
+};
+
 function App() {
   const { board, setDifficulty, startFresh, revealCell, toggleFlag, chordCell } = useGameStore();
   const [mode, setMode] = useState<"solo" | "versus">("solo");
@@ -83,18 +92,18 @@ function App() {
   }, [vsState, vsMatch]);
 
   const preStartLeft = useMemo(() => {
-    if (!vsState?.started_at) return null;
-    const startMs = new Date(vsState.started_at).getTime();
+    const startMs = parseUtcMillis(vsState?.started_at);
+    if (startMs === null) return null;
     return Math.max(0, Math.floor((startMs - now) / 1000));
   }, [vsState?.started_at, now]);
 
   const matchCountdownLeft = useMemo(() => {
-    if (!vsState?.started_at) return null;
-    const startMs = new Date(vsState.started_at).getTime();
+    const startMs = parseUtcMillis(vsState?.started_at);
+    if (startMs === null) return null;
     const endMs = startMs + (vsState.countdown_secs ?? 0) * 1000;
     const anchor = Math.max(now, startMs); // do not count down before start
     return Math.max(0, Math.floor((endMs - anchor) / 1000));
-  }, [vsState?.started_at, vsState?.countdown_secs, now]);
+  }, [vsState?.started_at, vsState.countdown_secs, now]);
 
   useEffect(() => {
     if (mode !== "versus") return;
