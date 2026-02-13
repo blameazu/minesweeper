@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlmodel import Session, select, func
 
 from ..db import get_session
-from ..models import LeaderboardEntry, LeaderboardReplay, Match, MatchPlayer, MatchStatus
+from ..models import LeaderboardEntry, LeaderboardReplay, Match, MatchPlayer, MatchStatus, User
 from ..schemas import ProfileResponse, ProfileBestScore, MatchHistoryItem
 from ..schemas import RankBoard, RankEntry
 from .match import _compute_standings
@@ -115,22 +115,43 @@ def _first_place_board(session: Session, current_user_id: int | None, limit: int
             continue
         rank1_players = [p for r, p in standings if r == 1]
         for p in rank1_players:
-            wins[p.name] = wins.get(p.name, 0) + 1
+            handle = (p.name or "").strip()
+            if not handle and p.user_id:
+                user = session.get(User, p.user_id)
+                handle = user.handle if user else ""
+            if not handle:
+                continue
+            wins[handle] = wins.get(handle, 0) + 1
+    # Ensure every user is represented even if they never placed first.
+    user_handles = [u.handle for u in session.exec(select(User)).all()]
+    for handle in user_handles:
+        wins.setdefault(handle, 0)
 
     top_sorted = sorted(wins.items(), key=lambda x: (-x[1], x[0]))
     top_entries = [RankEntry(handle=h, first=c) for h, c in top_sorted[:limit]]
 
     me_entry = None
     if current_user_id is not None:
-        me_players = session.exec(select(MatchPlayer).where(MatchPlayer.user_id == current_user_id)).all()
-        if me_players:
-            handle = me_players[0].name
-            me_entry = RankEntry(handle=handle, first=wins.get(handle, 0))
+        me_user = session.get(User, current_user_id)
+        if me_user:
+            me_entry = RankEntry(handle=me_user.handle, first=wins.get(me_user.handle, 0))
 
     return RankBoard(top=top_entries, me=me_entry)
 
 @router.get("/me", response_model=ProfileResponse)
 async def profile_me(session: Session = Depends(get_session), user=Depends(get_current_user)):
+    if not user:
+        return ProfileResponse(handle="", best_scores=[], match_history=[], rank_counts={"first": 0, "second": 0, "third": 0, "last": 0})
+
+    best_scores = _best_scores(session, user.handle)
+    match_history = _match_history(session, user.id)
+    rank_counts = _rank_counts(session, user.id)
+    return ProfileResponse(handle=user.handle, best_scores=best_scores, match_history=match_history, rank_counts=rank_counts)
+
+
+@router.get("/by-handle/{handle}", response_model=ProfileResponse)
+async def profile_by_handle(handle: str, session: Session = Depends(get_session)):
+    user = session.exec(select(User).where(User.handle == handle)).first()
     if not user:
         return ProfileResponse(handle="", best_scores=[], match_history=[], rank_counts={"first": 0, "second": 0, "third": 0, "last": 0})
 
