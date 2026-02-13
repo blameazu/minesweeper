@@ -39,7 +39,6 @@ import {
   register,
   fetchMe,
   fetchProfile,
-  fetchPublicProfile,
   fetchMatchSteps,
   fetchRankBoard,
   fetchMyActiveMatch,
@@ -72,40 +71,6 @@ const UI_THEME_KEY = "ui_theme";
 const THEME_OPTIONS = ["light", "dark", "forest", "sunset"] as const;
 const UI_VIEW_KEY = "ui_view";
 const UI_MODE_KEY = "ui_mode";
-const BASE_PATH = ((import.meta.env.BASE_URL as string | undefined) || "/").replace(/\/+$/, "") || "/";
-
-const joinPath = (...parts: string[]) => {
-  const cleaned = parts
-    .filter(Boolean)
-    .map((p) => p.replace(/(^\/+|\/+?$)/g, ""))
-    .filter((p) => p.length > 0);
-  return ("/" + [BASE_PATH.replace(/(^\/+|\/+?$)/g, ""), ...cleaned].filter(Boolean).join("/")).replace(/\/+$/, "") || "/";
-};
-
-const viewToPath = (view: "solo" | "versus" | "profile" | "rank" | "blog", handle?: string | null) => {
-  switch (view) {
-    case "rank":
-      return joinPath("rank");
-    case "blog":
-      return joinPath("blog");
-    case "profile":
-      return handle ? joinPath("profile", encodeURIComponent(handle)) : joinPath("profile");
-    default:
-      return joinPath("");
-  }
-};
-
-const pathToRoute = (pathname: string): { view: "solo" | "versus" | "profile" | "rank" | "blog"; handle: string | null } => {
-  const normalized = pathname.startsWith(BASE_PATH) ? pathname.slice(BASE_PATH.length) || "/" : pathname;
-  const profileMatch = normalized.match(/^\/profile\/(.+)$/);
-  if (profileMatch) {
-    return { view: "profile", handle: decodeURIComponent(profileMatch[1]) || null };
-  }
-  if (normalized.startsWith("/rank")) return { view: "rank", handle: null };
-  if (normalized.startsWith("/blog")) return { view: "blog", handle: null };
-  if (normalized.startsWith("/profile")) return { view: "profile", handle: null };
-  return { view: "solo", handle: null };
-};
 
 const readStored = <T extends string>(key: string, fallback: T, allowed: readonly T[]): T => {
   if (typeof window === "undefined") return fallback;
@@ -171,7 +136,6 @@ function App() {
   const [recentMatches, setRecentMatches] = useState<RecentMatch[]>([]);
   const [recentError, setRecentError] = useState<string | null>(null);
   const [selectedResultPlayerId, setSelectedResultPlayerId] = useState<number | null>(null);
-  const [profileHandle, setProfileHandle] = useState<string | null>(null);
   const [profile, setProfile] = useState<ProfileResponse | null>(null);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(false);
@@ -243,58 +207,6 @@ function App() {
   const [spectatorBoard, setSpectatorBoard] = useState<BoardState | null>(null);
   const [spectatorBoardLoading, setSpectatorBoardLoading] = useState(false);
   const [spectatorBoardError, setSpectatorBoardError] = useState<string | null>(null);
-  const [matchAura, setMatchAura] = useState(false);
-  const [matchBroadcast, setMatchBroadcast] = useState<{ rank: number; handle: string } | null>(null);
-  const matchBroadcastTimeout = useRef<number | null>(null);
-  const prevVsPlayerIds = useRef<Set<number>>(new Set());
-  const applyingRoute = useRef(false);
-
-  const normalizeMatchId = (input: unknown): number | null => {
-    if (input && typeof input === "object") return null;
-    if (typeof input === "number" && Number.isInteger(input) && input > 0) return input;
-    const fullwidth = "０１２３４５６７８９";
-    const raw = String(input ?? "").trim();
-    if (!raw) return null;
-    const ascii = raw.replace(/[０-９]/g, (ch) => {
-      const idx = fullwidth.indexOf(ch);
-      return idx >= 0 ? String(idx) : ch;
-    });
-    const digits = ascii.match(/\d+/);
-    if (!digits) return null;
-    const num = parseInt(digits[0], 10);
-    return Number.isInteger(num) && num > 0 ? num : null;
-  };
-
-  const openProfile = useCallback(
-    (handle: string | null) => {
-      const targetHandle = handle ?? currentUser?.handle ?? null;
-      const path = viewToPath("profile", targetHandle ?? undefined);
-      if (typeof window !== "undefined" && window.location.pathname !== path) {
-        window.history.pushState(null, "", path);
-      }
-      setProfileHandle(targetHandle);
-      setView("profile");
-    },
-    [currentUser?.handle]
-  );
-
-  const viewingSelf = !profileHandle || profileHandle === currentUser?.handle;
-
-  const renderHandle = useCallback(
-    (handle: string, className = "") => (
-      <button
-        type="button"
-        onClick={() => openProfile(handle)}
-        className="hover:underline underline-offset-4 bg-transparent border-0 p-0 m-0 align-baseline cursor-pointer"
-        style={{ backgroundColor: "transparent", color: "inherit" }}
-      >
-        <span className={className} style={{ backgroundColor: "transparent" }}>
-          {handle}
-        </span>
-      </button>
-    ),
-    [openProfile]
-  );
 
   const isAuthenticated = !!currentUser && !!token;
 
@@ -384,34 +296,12 @@ function App() {
     }
   }, [theme]);
 
-  // Sync initial view with current path and handle browser back/forward.
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const applyPath = () => {
-      const { view: v, handle } = pathToRoute(window.location.pathname);
-      applyingRoute.current = true;
-      setView(v);
-      setProfileHandle(v === "profile" ? handle ?? currentUser?.handle ?? null : null);
-      applyingRoute.current = false;
-    };
-    applyPath();
-    const listener = () => applyPath();
-    window.addEventListener("popstate", listener);
-    return () => window.removeEventListener("popstate", listener);
-  }, [currentUser?.handle]);
-
   useEffect(() => {
     if (typeof window !== "undefined") {
       localStorage.setItem(UI_VIEW_KEY, view);
       localStorage.setItem(UI_MODE_KEY, mode);
-      if (!applyingRoute.current) {
-        const path = viewToPath(view, view === "profile" ? profileHandle ?? currentUser?.handle ?? null : undefined);
-        if (window.location.pathname !== path) {
-          window.history.pushState(null, "", path);
-        }
-      }
     }
-  }, [view, mode, profileHandle, currentUser?.handle]);
+  }, [view, mode]);
 
   const resetSoloReplay = useCallback(() => {
     setSoloReplaySteps([]);
@@ -458,35 +348,28 @@ function App() {
   }, [board.startedAt]);
 
   useEffect(() => {
+    if (!isAuthenticated || !token) {
+      setProfile(null);
+      return;
+    }
     let cancelled = false;
-    const pathHandle = typeof window !== "undefined" ? pathToRoute(window.location.pathname).handle : null;
-    const targetHandle = profileHandle ?? pathHandle ?? (isAuthenticated ? currentUser?.handle ?? null : null);
-    const usePublic = !!targetHandle && (!isAuthenticated || targetHandle !== currentUser?.handle || !!profileHandle);
-
     const load = async () => {
-      if (!targetHandle) {
-        setProfile(null);
-        setProfileError("請先登入查看個人資料");
-        return;
-      }
       try {
         setLoadingProfile(true);
         setProfileError(null);
-        const data = usePublic ? await fetchPublicProfile(targetHandle) : await fetchProfile(token as string);
+        const data = await fetchProfile(token);
         if (!cancelled) setProfile(data);
       } catch (e) {
         if (!cancelled) setProfileError(e instanceof Error ? e.message : "讀取個人資料失敗");
-        if (!cancelled) setProfile(null);
       } finally {
         if (!cancelled) setLoadingProfile(false);
       }
     };
-
     load();
     return () => {
       cancelled = true;
     };
-  }, [profileHandle, isAuthenticated, token, currentUser?.handle]);
+  }, [isAuthenticated, token]);
 
   useEffect(() => {
     setAuthError(null);
@@ -629,15 +512,6 @@ function App() {
     return 1 / replaySpeed;
   }, [replaySpeed]);
 
-  const resetReplay = () => {
-    setReplayBoard(null);
-    setReplayBase(null);
-    setReplaySteps([]);
-    setReplayIndex(0);
-    setReplayPlaying(false);
-    setReplayError(null);
-  };
-
   const myPlayer = useMemo(() => {
     if (!vsMatch || !vsState) return null;
     return vsState.players.find((p) => p.id === vsMatch.playerId) ?? null;
@@ -722,45 +596,10 @@ function App() {
   }, [board.difficulty]);
 
   useEffect(() => {
-    if (!isAuthenticated) {
-      setRankBoard(null);
-    }
-  }, [isAuthenticated]);
-
-  useEffect(() => {
     if (view !== "profile") return;
     refreshProfile();
     loadMyBlogPosts();
   }, [view, isAuthenticated, token]);
-
-  // 當排名資料存在時，偵測是否有排行榜前 3 名玩家進入當前對局並做房內廣播。
-  useEffect(() => {
-    if (mode !== "versus") return;
-    const players = vsState?.players ?? [];
-    const currentIds = new Set(players.map((p) => p.id));
-    const joined = players.filter((p) => !prevVsPlayerIds.current.has(p.id));
-    prevVsPlayerIds.current = currentIds;
-
-    if (!joined.length || !(rankBoard?.top?.length ?? 0)) return;
-    const topMap = new Map<string, number>();
-    rankBoard.top.slice(0, 3).forEach((entry, idx) => topMap.set(entry.handle, idx + 1));
-
-    const hit = joined.find((p) => topMap.has(p.name));
-    if (!hit) return;
-
-    const rank = topMap.get(hit.name);
-    if (!rank) return;
-
-    if (matchBroadcastTimeout.current) clearTimeout(matchBroadcastTimeout.current);
-    setMatchBroadcast({ rank, handle: hit.name });
-    matchBroadcastTimeout.current = window.setTimeout(() => setMatchBroadcast(null), 4000);
-  }, [mode, vsState?.players, rankBoard?.top]);
-
-  useEffect(() => {
-    return () => {
-      if (matchBroadcastTimeout.current) clearTimeout(matchBroadcastTimeout.current);
-    };
-  }, []);
 
   useEffect(() => {
     if (view !== "rank") return;
@@ -769,7 +608,7 @@ function App() {
       try {
         setLoadingRank(true);
         setRankError(null);
-        const data = await fetchRankBoard(token ?? undefined);
+        const data = await fetchRankBoard();
         if (!cancelled) setRankBoard(data);
       } catch (e) {
         if (!cancelled) setRankError(e instanceof Error ? e.message : "讀取排行失敗");
@@ -781,7 +620,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [view, isAuthenticated, currentUser?.handle, token]);
+  }, [view]);
 
   useEffect(() => {
     if (view !== "blog") return;
@@ -877,63 +716,57 @@ function App() {
   }, [vsState]);
 
   useEffect(() => {
-    if (!vsMatch || !vsState) return;
-    if (vsState.status !== "finished") return;
-    if (!myPlayer) return;
-
-    // Default select a player board once finished
+    if (mode !== "versus") return;
+    let cancelled = false;
+    const run = async () => {
+      try {
+        setSubmitting(true);
+        setError(null);
+        await submitScore({
+          difficulty: board.difficulty,
+          timeMs: elapsedMs,
+          token,
+          replay: {
+            board: { width: board.width, height: board.height, mines: board.mines, seed: board.seed, safe_start: board.safeStart ?? null },
+            steps: soloReplaySteps,
+            duration_ms: elapsedMs
+          }
+        });
+        await loadLeaderboard(board.difficulty);
+        await refreshProfile();
+        if (!cancelled) setAutoSubmitted(true);
+      } catch (e) {
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : "提交失敗");
+          setAutoSubmitted(false);
+        }
+      } finally {
+        if (!cancelled) setSubmitting(false);
+      }
+    };
+      setSelectedResultPlayerId(null);
+      resetReplay();
+      return;
+    }
     if (selectedResultPlayerId === null && vsState.players.length > 0) {
       setSelectedResultPlayerId(vsState.players[0].id);
     }
-
-    resetReplay();
-
     if (vsProgressUploaded) return;
-    if (myPlayer.progress) {
+    if (myPlayer?.progress) {
       setVsProgressUploaded(true);
       return;
     }
 
     const snapshot = useGameStore.getState().board;
-    const outcome = myPlayer.result ?? "draw";
+    const outcome = myPlayer?.result ?? "draw";
     finishMatch(vsMatch.matchId, {
       playerToken: vsMatch.playerToken,
       outcome: outcome as "win" | "lose" | "draw" | "forfeit",
-      steps_count: myPlayer.steps_count ?? vsStepCount,
-      duration_ms: myPlayer.duration_ms ?? undefined,
+      steps_count: myPlayer?.steps_count ?? vsStepCount,
+      duration_ms: myPlayer?.duration_ms ?? undefined,
       progress: { board: snapshot }
     }).finally(() => setVsProgressUploaded(true));
-  }, [myPlayer, resetReplay, selectedResultPlayerId, vsMatch, vsProgressUploaded, vsState, vsStepCount]);
-
-  useEffect(() => {
-    // 關閉對局藍色光暈特效
-    setMatchAura(false);
-  }, [mode, vsMatch, vsState?.status]);
-
-  // Keep recent matches visible (including open rooms) whenever the versus view is active.
-  useEffect(() => {
-    if (view !== "versus") return;
-    let cancelled = false;
-
-    const loadRecent = async () => {
-      try {
-        const data = await fetchRecentMatches();
-        if (!cancelled) {
-          setRecentMatches(data);
-          setRecentError(null);
-        }
-      } catch (e) {
-        if (!cancelled) setRecentError(e instanceof Error ? e.message : "讀取最近對戰失敗");
-      }
-    };
-
-    loadRecent();
-    const id = setInterval(loadRecent, 5000);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, [view]);
+  }, [myPlayer, vsMatch, vsProgressUploaded, vsState, vsStepCount]);
 
   useEffect(() => {
     if (vsState?.status !== "finished") return;
@@ -1015,6 +848,7 @@ function App() {
     if (autoSubmitted || submitting) return;
     let cancelled = false;
     const run = async () => {
+      setAutoSubmitted(true);
       try {
         setSubmitting(true);
         setError(null);
@@ -1030,7 +864,6 @@ function App() {
         });
         await loadLeaderboard(board.difficulty);
         await refreshProfile();
-        if (!cancelled) setAutoSubmitted(true);
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "提交失敗");
       } finally {
@@ -1196,12 +1029,11 @@ function App() {
     clearSpectateView();
     setVsMatch(null);
     setVsState(null);
-    const parsedId = normalizeMatchId(targetId ?? joinId);
-    if (!parsedId) {
-      setVsError(`請輸入有效的對局 ID (${targetId ?? joinId})`);
+    const idNum = targetId ?? Number(joinId);
+    if (!idNum || Number.isNaN(idNum)) {
+      setVsError("請輸入有效的對局 ID");
       return;
     }
-    const idNum = parsedId;
     if (!isAuthenticated || !currentUser) {
       setVsError("請先登入");
       return;
@@ -1278,12 +1110,11 @@ function App() {
   };
 
   const handleSpectate = async (targetId?: number) => {
-    const parsedId = normalizeMatchId(targetId ?? spectateId);
-    if (!parsedId) {
-      setVsError(`請輸入有效的觀戰 ID (${targetId ?? spectateId})`);
+    const idNum = targetId ?? Number(spectateId);
+    if (!idNum || Number.isNaN(idNum)) {
+      setVsError("請輸入有效的觀戰 ID");
       return;
     }
-    const idNum = parsedId;
     if (vsMatch && !isSpectator && vsState?.status !== "finished") {
       setVsError("目前在對局中，請先退出或等待結束");
       return;
@@ -1750,6 +1581,15 @@ function App() {
     localStorage.removeItem("auth_token");
   };
 
+  const resetReplay = () => {
+    setReplayBoard(null);
+    setReplayBase(null);
+    setReplaySteps([]);
+    setReplayIndex(0);
+    setReplayPlaying(false);
+    setReplayError(null);
+  };
+
   const clearSpectateView = () => {
     setIsSpectator(false);
     setSpectatorViewPlayerId(null);
@@ -2097,9 +1937,7 @@ function App() {
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8 space-y-8 text-[var(--text-primary)]">
-      {matchAura && <div className="match-aura" aria-hidden />}
-      {/* 全域 Rank.1 特效移除，避免非榜首顯示閃爍效果 */}
-      <header className="flex items-baseline justify-between relative z-10">
+      <header className="flex items-baseline justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">踩地雷</h1>
           <p className="text-sm opacity-80">
@@ -2114,7 +1952,6 @@ function App() {
               clearSpectateView();
               setView("solo");
               setMode("solo");
-              if (typeof window !== "undefined") window.history.pushState(null, "", viewToPath("solo"));
             }}
             className={`px-3 py-2 rounded-full text-sm border ${
               view === "solo" ? "bg-[var(--accent)] text-white border-transparent" : "bg-[var(--surface-strong)] border-[var(--border)]"
@@ -2126,7 +1963,6 @@ function App() {
             onClick={() => {
               setView("versus");
               setMode("versus");
-              if (typeof window !== "undefined") window.history.pushState(null, "", viewToPath("versus"));
             }}
             className={`px-3 py-2 rounded-full text-sm border ${
               view === "versus" ? "bg-[var(--accent)] text-white border-transparent" : "bg-[var(--surface-strong)] border-[var(--border)]"
@@ -2135,11 +1971,7 @@ function App() {
             對戰
           </button>
           <button
-            onClick={() => {
-              setProfileHandle(null);
-              setView("profile");
-              if (typeof window !== "undefined") window.history.pushState(null, "", viewToPath("profile", currentUser?.handle ?? null));
-            }}
+            onClick={() => setView("profile")}
             className={`px-3 py-2 rounded-full text-sm border ${
               view === "profile" ? "bg-[var(--accent)] text-white border-transparent" : "bg-[var(--surface-strong)] border-[var(--border)]"
             }`}
@@ -2147,11 +1979,7 @@ function App() {
             個人主頁
           </button>
           <button
-            onClick={() => {
-              setProfileHandle(null);
-              setView("rank");
-              if (typeof window !== "undefined") window.history.pushState(null, "", viewToPath("rank"));
-            }}
+            onClick={() => setView("rank")}
             className={`px-3 py-2 rounded-full text-sm border ${
               view === "rank" ? "bg-[var(--accent)] text-white border-transparent" : "bg-[var(--surface-strong)] border-[var(--border)]"
             }`}
@@ -2159,11 +1987,7 @@ function App() {
             Rank
           </button>
           <button
-            onClick={() => {
-              setProfileHandle(null);
-              setView("blog");
-              if (typeof window !== "undefined") window.history.pushState(null, "", viewToPath("blog"));
-            }}
+            onClick={() => setView("blog")}
             className={`px-3 py-2 rounded-full text-sm border ${
               view === "blog" ? "bg-[var(--accent)] text-white border-transparent" : "bg-[var(--surface-strong)] border-[var(--border)]"
             }`}
@@ -2192,19 +2016,9 @@ function App() {
           <div className="bg-[var(--surface)] rounded-xl border border-[var(--border)] shadow p-4 space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold">個人主頁</h2>
-              <div className="flex items-center gap-3 text-sm opacity-80">
-                <span>{profileHandle ?? profile?.handle ?? currentUser?.handle ?? "請登入"}</span>
-                {profileHandle && isAuthenticated && (
-                  <button
-                    onClick={() => setProfileHandle(null)}
-                    className="px-2 py-1 rounded-full border border-[var(--border)] bg-[var(--surface-strong)] text-xs"
-                  >
-                    回到自己
-                  </button>
-                )}
-              </div>
+              <div className="text-sm opacity-80">{currentUser ? currentUser.handle : "請登入"}</div>
             </div>
-            {!profileHandle && !isAuthenticated ? (
+            {!isAuthenticated ? (
               <p className="text-sm text-red-600">請先登入查看個人資料</p>
             ) : loadingProfile ? (
               <p className="text-sm opacity-70">載入中...</p>
@@ -2308,69 +2122,67 @@ function App() {
                   )}
                 </div>
 
-                {viewingSelf && (
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <h3 className="font-semibold">我的文章</h3>
-                      <button
-                        onClick={loadMyBlogPosts}
-                        className="text-xs px-2 py-1 rounded border border-[var(--border)] bg-[var(--surface-strong)]"
-                      >
-                        重新整理
-                      </button>
-                    </div>
-                    {myBlogError && <p className="text-sm text-red-600">{myBlogError}</p>}
-                    {myBlogLoading ? (
-                      <p className="text-sm opacity-70">載入中...</p>
-                    ) : myBlogPosts.length === 0 ? (
-                      <p className="text-sm opacity-70">尚未發表文章</p>
-                    ) : (
-                      <div className="space-y-2 text-sm">
-                        {myBlogPosts.map((p) => (
-                          <div key={p.id} className="rounded border border-[var(--border)] bg-[var(--surface-strong)] px-3 py-2">
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <div className="font-semibold">{p.title}</div>
-                                <div className="text-xs opacity-70">{new Date(p.created_at).toLocaleString()}</div>
-                              </div>
-                              <div className="flex items-center gap-2 text-xs">
-                                <span>👍 {p.upvotes}</span>
-                                <span>👎 {p.downvotes}</span>
-                                <span>留言 {p.comment_count}</span>
-                              </div>
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="font-semibold">我的文章</h3>
+                    <button
+                      onClick={loadMyBlogPosts}
+                      className="text-xs px-2 py-1 rounded border border-[var(--border)] bg-[var(--surface-strong)]"
+                    >
+                      重新整理
+                    </button>
+                  </div>
+                  {myBlogError && <p className="text-sm text-red-600">{myBlogError}</p>}
+                  {myBlogLoading ? (
+                    <p className="text-sm opacity-70">載入中...</p>
+                  ) : myBlogPosts.length === 0 ? (
+                    <p className="text-sm opacity-70">尚未發表文章</p>
+                  ) : (
+                    <div className="space-y-2 text-sm">
+                      {myBlogPosts.map((p) => (
+                        <div key={p.id} className="rounded border border-[var(--border)] bg-[var(--surface-strong)] px-3 py-2">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <div className="font-semibold">{p.title}</div>
+                              <div className="text-xs opacity-70">{new Date(p.created_at).toLocaleString()}</div>
                             </div>
-                            <div className="mt-2 flex gap-2 text-xs">
-                              <button
-                                onClick={() => {
-                                  setView("blog");
-                                  handleOpenBlogPost(p.id);
-                                }}
-                                className="px-2 py-1 rounded border border-[var(--border)] bg-[var(--surface)]"
-                              >
-                                查看
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setView("blog");
-                                  handleOpenBlogPost(p.id, true);
-                                }}
-                                className="px-2 py-1 rounded border border-[var(--border)] bg-[var(--surface)]"
-                              >
-                                編輯
-                              </button>
-                              <button
-                                onClick={() => handleDeleteBlogPost(p.id)}
-                                className="px-2 py-1 rounded border border-red-200 bg-red-50 text-red-700"
-                              >
-                                刪除
-                              </button>
+                            <div className="flex items-center gap-2 text-xs">
+                              <span>👍 {p.upvotes}</span>
+                              <span>👎 {p.downvotes}</span>
+                              <span>留言 {p.comment_count}</span>
                             </div>
                           </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
+                          <div className="mt-2 flex gap-2 text-xs">
+                            <button
+                              onClick={() => {
+                                setView("blog");
+                                handleOpenBlogPost(p.id);
+                              }}
+                              className="px-2 py-1 rounded border border-[var(--border)] bg-[var(--surface)]"
+                            >
+                              查看
+                            </button>
+                            <button
+                              onClick={() => {
+                                setView("blog");
+                                handleOpenBlogPost(p.id, true);
+                              }}
+                              className="px-2 py-1 rounded border border-[var(--border)] bg-[var(--surface)]"
+                            >
+                              編輯
+                            </button>
+                            <button
+                              onClick={() => handleDeleteBlogPost(p.id)}
+                              className="px-2 py-1 rounded border border-red-200 bg-red-50 text-red-700"
+                            >
+                              刪除
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             ) : null}
           </div>
@@ -2388,22 +2200,18 @@ function App() {
               <p className="text-sm text-red-600">{rankError}</p>
             ) : rankBoard && rankBoard.top.length > 0 ? (
               <ol className="space-y-2 text-sm">
-                {rankBoard.top.map((r, idx) => {
-                  const glowClass =
-                    idx === 0 ? "rank-handle-glow rank-glow-1" : idx === 1 ? "rank-handle-glow rank-glow-2" : idx === 2 ? "rank-handle-glow rank-glow-3" : "";
-                  return (
+                {rankBoard.top.map((r, idx) => (
                   <li
                     key={`${r.handle}-${idx}`}
-                    className={`flex items-center justify-between rounded border border-[var(--border)] bg-[var(--surface-strong)] px-3 py-2 rank-card rank-card-${idx + 1}`}
+                    className="flex items-center justify-between rounded border border-[var(--border)] bg-[var(--surface-strong)] px-3 py-2"
                   >
                     <div className="flex items-center gap-2">
-                      <span className={`rank-medal rank-medal-${idx + 1}`}>#{idx + 1}</span>
-                        {renderHandle(r.handle, `font-semibold ${glowClass}`.trim())}
+                      <span className="font-mono text-xs w-6">#{idx + 1}</span>
+                      <span className="font-semibold">{r.handle}</span>
                     </div>
                     <span className="font-mono">{r.first}</span>
                   </li>
-                  );
-                })}
+                ))}
               </ol>
             ) : (
               <p className="text-sm opacity-70">暫無資料</p>
@@ -2412,7 +2220,7 @@ function App() {
             {rankBoard?.me && (
               <div className="mt-3 rounded border border-[var(--border)] bg-[var(--surface-strong)] px-3 py-2 text-sm flex items-center justify-between">
                 <span className="opacity-70">你的 #1 勝場</span>
-                  <span className="font-semibold">{rankBoard.me.first}</span>
+                <span className="font-semibold">{rankBoard.me.first}</span>
               </div>
             )}
           </div>
@@ -2703,17 +2511,7 @@ function App() {
                 </div>
               </div>
 
-                {mode === "versus" && matchBroadcast && (
-                  <div className="w-full">
-                    <div className="mb-2 flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-strong)] px-3 py-2 text-sm text-[var(--text-primary)] shadow-sm">
-                      <span className={`rank-medal rank-medal-${Math.min(matchBroadcast.rank, 3)}`}>#{matchBroadcast.rank}</span>
-                      <span className={`font-semibold rank-handle-glow rank-glow-${Math.min(matchBroadcast.rank, 3)}`}>{matchBroadcast.handle}</span>
-                      <span className="opacity-80">加入了這場對局</span>
-                    </div>
-                  </div>
-                )}
-
-                <div className="w-full overflow-auto">
+              <div className="w-full overflow-auto">
                 <div className="relative inline-block">
                   {mode === "versus" && vsState?.status === "active" && preStartLeft !== null && preStartLeft > 0 && (
                     <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/50 text-white text-2xl font-semibold rounded-xl">
@@ -2733,7 +2531,7 @@ function App() {
                               : "bg-[var(--surface-strong)] border-[var(--border)]"
                           }`}
                         >
-                          <span>{p.name}</span>
+                          {p.name}
                         </button>
                       ))}
                       <button
@@ -2781,10 +2579,10 @@ function App() {
                 </div>
                 {isAuthenticated && currentUser ? (
                   <div className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--surface-strong)] px-3 py-2">
-                      <div>
-                        <div className="text-xs opacity-70">已登入</div>
-                        {renderHandle(currentUser.handle, "font-semibold")}
-                      </div>
+                    <div>
+                      <div className="text-xs opacity-70">已登入</div>
+                      <div className="font-semibold">{currentUser.handle}</div>
+                    </div>
                     <button
                       onClick={handleLogout}
                       className="text-sm px-3 py-1 rounded border border-[var(--border)] bg-[var(--surface)]"
@@ -2870,7 +2668,7 @@ function App() {
                         {isAuthenticated && currentUser ? (
                           <>
                             <span className="opacity-70 mr-1">玩家</span>
-                              {renderHandle(currentUser.handle, "font-semibold")}
+                            <span className="font-semibold">{currentUser.handle}</span>
                           </>
                         ) : (
                           <span className="opacity-70">請先登入以自動上榜</span>
@@ -2898,7 +2696,7 @@ function App() {
                           <li key={entry.id} className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
                               <span className="text-xs opacity-70 w-6">#{i + 1}</span>
-                                {renderHandle(entry.player, "font-medium")}
+                              <span className="font-medium">{entry.player}</span>
                             </div>
                             <div className="flex items-center gap-2">
                               <div className="font-mono text-sm">{formatMs(entry.timeMs)} s</div>
@@ -2963,8 +2761,8 @@ function App() {
                       >
                         建立對局
                       </button>
-                        <button
-                          onClick={() => handleJoinMatch()}
+                      <button
+                        onClick={handleJoinMatch}
                         disabled={!isAuthenticated || !currentUser || (!!vsMatch && vsState?.status !== "finished")}
                         className="w-full rounded bg-[var(--surface-strong)] border border-[var(--border)] py-2 disabled:opacity-60"
                       >
@@ -2979,8 +2777,6 @@ function App() {
                       退出對局（開始前）
                     </button>
                     <input
-                      inputMode="numeric"
-                      pattern="[0-9]*"
                       value={joinId}
                       onChange={(e) => setJoinId(e.target.value)}
                       placeholder="輸入對局 ID"
@@ -2988,15 +2784,13 @@ function App() {
                       disabled={!isAuthenticated || !currentUser}
                     />
                     <input
-                      inputMode="numeric"
-                      pattern="[0-9]*"
                       value={spectateId}
                       onChange={(e) => setSpectateId(e.target.value)}
                       placeholder="輸入觀戰 ID"
                       className="w-full rounded border border-[var(--border)] px-3 py-2 bg-[var(--surface-strong)]"
                     />
                     <button
-                      onClick={() => handleSpectate()}
+                      onClick={handleSpectate}
                       disabled={!!vsMatch && !isSpectator && vsState?.status !== "finished"}
                       className="w-full rounded bg-[var(--surface-strong)] border border-[var(--border)] py-2 disabled:opacity-60"
                     >
@@ -3032,7 +2826,7 @@ function App() {
                           {(vsState?.players ?? []).map((p) => (
                             <div key={p.id} className="flex items-center justify-between text-sm">
                               <span>
-                                {renderHandle(p.name)}
+                                {p.name}
                                 {vsState?.host_id === p.id ? " (房主)" : ""}
                               </span>
                               <span className="opacity-70 flex items-center gap-2">
@@ -3119,7 +2913,7 @@ function App() {
                                     }`}
                                   >
                                     {p.is_host ? "房主 · " : ""}
-                                    {renderHandle(p.name)}：{p.ready ? "已準備" : "未準備"}
+                                    {p.name}：{p.ready ? "已準備" : "未準備"}
                                   </span>
                                 ))}
                               </div>
@@ -3131,7 +2925,7 @@ function App() {
                                     className="px-2 py-1 rounded-full text-xs border border-[var(--border)] bg-[var(--surface)]"
                                   >
                                     {p.is_host ? "房主 · " : ""}
-                                    {renderHandle(p.name)}：{renderResult(p.result, m.status)}
+                                    {p.name}：{renderResult(p.result, m.status)}
                                   </span>
                                 ))}
                               </div>
@@ -3197,7 +2991,7 @@ function App() {
                           : "bg-[var(--surface-strong)] border-[var(--border)]"
                       }`}
                     >
-                      {renderHandle(p.name)} ({renderResult(p.result, vsState.status)})
+                      {p.name} ({renderResult(p.result, vsState.status)})
                     </button>
                   ))}
                 </div>
@@ -3215,7 +3009,7 @@ function App() {
                     <div className="space-y-3">
                       <div className="flex items-center justify-between flex-wrap gap-2">
                         <div>
-                          <div className="font-semibold">{renderHandle(p.name)}</div>
+                          <div className="font-semibold">{p.name}</div>
                           <div className="text-sm opacity-80">{p.result ?? "完成"}</div>
                         </div>
                         <div className="flex items-center gap-2 text-sm">

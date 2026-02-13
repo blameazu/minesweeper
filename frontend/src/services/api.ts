@@ -131,42 +131,14 @@ export const joinMatch = async (matchId: number, params: { token: string }): Pro
     body: JSON.stringify({ player: "" })
   });
   if (!res.ok) {
-    const formatDetail = (data: any) => {
-      if (!data) return "";
-      const detail = data.detail ?? data.message ?? data.error ?? data;
-      if (typeof detail === "string") return `: ${detail}`;
-      if (Array.isArray(detail)) {
-        const msg = detail
-          .map((item) => {
-            if (typeof item === "string") return item;
-            if (item?.msg) return item.msg;
-            if (item?.message) return item.message;
-            return JSON.stringify(item);
-          })
-          .join("; ");
-        return msg ? `: ${msg}` : "";
-      }
-      if (typeof detail === "object") {
-        if (typeof detail.message === "string") return `: ${detail.message}`;
-        if (typeof detail.error === "string") return `: ${detail.error}`;
-        if (typeof detail.detail === "string") return `: ${detail.detail}`;
-        try {
-          return `: ${JSON.stringify(detail)}`;
-        } catch {
-          return "";
-        }
-      }
-      return "";
-    };
-
-    let detailText = "";
+    let detail = "";
     try {
       const data = await res.json();
-      detailText = formatDetail(data);
+      detail = data?.detail ? `: ${data.detail}` : "";
     } catch {
       /* ignore parse errors */
     }
-    throw new Error(`加入對局失敗 (${res.status})${detailText}`);
+    throw new Error(`加入對局失敗 (${res.status})${detail}`);
   }
   const data = await res.json();
   return {
@@ -180,11 +152,7 @@ export const joinMatch = async (matchId: number, params: { token: string }): Pro
 };
 
 export const fetchMatchState = async (matchId: number): Promise<MatchState> => {
-  const idNum = Number(matchId);
-  if (!Number.isInteger(idNum) || idNum <= 0) {
-    throw new Error(`讀取對局失敗：無效的對局 ID (${matchId})`);
-  }
-  const res = await fetch(`${API_BASE}/api/match/${idNum}/state`, { headers: { ...NGROK_HEADER } });
+  const res = await fetch(`${API_BASE}/api/match/${matchId}/state`, { headers: { ...NGROK_HEADER } });
   if (!res.ok) throw new Error(`讀取對局失敗 (${res.status})`);
   return res.json();
 };
@@ -277,14 +245,8 @@ export const fetchProfile = async (token: string): Promise<ProfileResponse> => {
   return res.json();
 };
 
-export const fetchPublicProfile = async (handle: string): Promise<ProfileResponse> => {
-  const res = await fetch(`${API_BASE}/api/profile/by-handle/${encodeURIComponent(handle)}`, { headers: { ...NGROK_HEADER } });
-  if (!res.ok) throw new Error(`讀取個人資料失敗 (${res.status})`);
-  return res.json();
-};
-
-export const fetchRankBoard = async (token?: string): Promise<RankBoard> => {
-  const res = await fetch(`${API_BASE}/api/profile/rankings`, { headers: { ...NGROK_HEADER, ...authHeaders(token) } });
+export const fetchRankBoard = async (): Promise<RankBoard> => {
+  const res = await fetch(`${API_BASE}/api/profile/rankings`, { headers: { ...NGROK_HEADER } });
   if (!res.ok) throw new Error(`讀取排行失敗 (${res.status})`);
   return res.json();
 };

@@ -631,20 +631,8 @@ async def match_history(player: str, session: Session = Depends(get_session)):
 
 @router.get("/recent", response_model=list[RecentMatch])
 async def recent_matches(session: Session = Depends(get_session)):
-    # Always include all pending/active matches so open rooms stay visible, then
-    # backfill with the most recent finished ones (up to 10) to keep payloads small.
-    stmt_open = (
-        select(Match)
-        .where(Match.status.in_([MatchStatus.pending, MatchStatus.active]))
-        .order_by(Match.created_at.desc())
-    )
-    open_matches = session.exec(stmt_open).all()
-
-    stmt_finished = select(Match).where(Match.status == MatchStatus.finished).order_by(Match.created_at.desc()).limit(10)
-    finished_matches = session.exec(stmt_finished).all()
-
-    open_ids = {m.id for m in open_matches if m.id is not None}
-    matches = open_matches + [m for m in finished_matches if m.id not in open_ids]
+    stmt_matches = select(Match).order_by(Match.created_at.desc()).limit(10)
+    matches = session.exec(stmt_matches).all()
 
     match_ids = [m.id for m in matches if m.id is not None]
     players_by_match: dict[int, list[MatchPlayer]] = {mid: [] for mid in match_ids}
