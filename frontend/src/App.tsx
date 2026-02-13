@@ -77,6 +77,7 @@ function App() {
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
   const [authHandle, setAuthHandle] = useState("");
   const [authPassword, setAuthPassword] = useState("");
+  const [authPasswordConfirm, setAuthPasswordConfirm] = useState("");
   const [authError, setAuthError] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
   const [token, setToken] = useState<string | null>(null);
@@ -250,6 +251,8 @@ function App() {
 
   useEffect(() => {
     setAuthError(null);
+    setAuthPassword("");
+    setAuthPasswordConfirm("");
   }, [authMode]);
 
   useEffect(() => {
@@ -1087,6 +1090,10 @@ function App() {
       setAuthError("請輸入帳號與密碼");
       return;
     }
+    if (authMode === "register" && authPassword !== authPasswordConfirm) {
+      setAuthError("兩次輸入的密碼不一致");
+      return;
+    }
     try {
       setAuthLoading(true);
       setAuthError(null);
@@ -1097,6 +1104,7 @@ function App() {
       setToken(nextToken);
       localStorage.setItem("auth_token", nextToken);
       setAuthPassword("");
+      setAuthPasswordConfirm("");
     } catch (e) {
       setAuthError(e instanceof Error ? e.message : "請稍後再試");
     } finally {
@@ -1350,6 +1358,15 @@ function App() {
                       placeholder="密碼（至少 6 碼）"
                       className="w-full rounded border border-[var(--border)] px-3 py-2 bg-[var(--surface-strong)]"
                     />
+                    {authMode === "register" && (
+                      <input
+                        type="password"
+                        value={authPasswordConfirm}
+                        onChange={(e) => setAuthPasswordConfirm(e.target.value)}
+                        placeholder="再次輸入密碼"
+                        className="w-full rounded border border-[var(--border)] px-3 py-2 bg-[var(--surface-strong)]"
+                      />
+                    )}
                     <button
                       onClick={handleAuthSubmit}
                       disabled={authLoading}

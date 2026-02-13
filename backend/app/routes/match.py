@@ -280,8 +280,22 @@ async def finish_match(match_id: int, payload: MatchFinish, session: Session = D
             session.commit()
         return {"ok": True}
 
+    # Determine if the player actually completed the entire board (used to gate "win").
+    completed_board = False
+    if payload.progress is not None:
+        try:
+            progress_obj = payload.progress
+            board_snapshot = progress_obj.get("board") if isinstance(progress_obj, dict) else None
+            completed_board = isinstance(board_snapshot, dict) and board_snapshot.get("status") == "won"
+        except Exception:
+            completed_board = False
+
     now = datetime.utcnow()
-    player.result = payload.outcome
+    actual_outcome = payload.outcome
+    if payload.outcome == "win" and not completed_board:
+        actual_outcome = "forfeit"
+
+    player.result = actual_outcome
     player.duration_ms = payload.duration_ms
     player.steps_count = payload.steps_count or player.steps_count
     player.finished_at = now
@@ -292,14 +306,14 @@ async def finish_match(match_id: int, payload: MatchFinish, session: Session = D
     players = _list_players(session, match)
     other_players = [p for p in players if p.id != player.id]
 
-    if payload.outcome == "win":
+    if actual_outcome == "win":
         match.status = MatchStatus.finished
         match.ended_at = now
         for op in other_players:
             if not op.result:
                 op.result = "lose"
                 op.finished_at = now
-    elif payload.outcome == "lose":
+    elif actual_outcome == "lose":
         match.status = MatchStatus.finished
         match.ended_at = now
         for op in other_players:
@@ -307,7 +321,7 @@ async def finish_match(match_id: int, payload: MatchFinish, session: Session = D
                 op.result = "win"
                 op.finished_at = now
     else:
-        # if all players have a result, finish the match
+        # for draw/forfeit: finish only when all players have a result
         if all(p.result for p in players):
             match.status = MatchStatus.finished
             match.ended_at = now
