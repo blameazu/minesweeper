@@ -2046,9 +2046,9 @@ function App() {
                             {b.has_replay ? (
                               <button
                                 onClick={() => {
-                                  const base = window.location.origin;
-                                  const url = `${base}?replay=${b.entry_id}`;
-                                  window.open(url, "_blank");
+                                  const url = new URL(window.location.href);
+                                  url.searchParams.set("replay", String(b.entry_id));
+                                  window.open(url.toString(), "_blank");
                                 }}
                                 className="px-2 py-1 rounded border border-[var(--border)] bg-[var(--surface)] text-xs"
                               >
@@ -2703,8 +2703,9 @@ function App() {
                               <button
                                 onClick={() => {
                                   if (!entry.hasReplay) return;
-                                  const url = `${window.location.origin}?replay=${entry.id}`;
-                                  window.open(url, "_blank");
+                                  const url = new URL(window.location.href);
+                                  url.searchParams.set("replay", String(entry.id));
+                                  window.open(url.toString(), "_blank");
                                 }}
                                 disabled={!entry.hasReplay}
                                 className={`px-2 py-1 rounded border text-xs ${
