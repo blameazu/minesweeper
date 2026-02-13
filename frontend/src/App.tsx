@@ -72,28 +72,38 @@ const UI_THEME_KEY = "ui_theme";
 const THEME_OPTIONS = ["light", "dark", "forest", "sunset"] as const;
 const UI_VIEW_KEY = "ui_view";
 const UI_MODE_KEY = "ui_mode";
+const BASE_PATH = ((import.meta.env.BASE_URL as string | undefined) || "/").replace(/\/+$/, "") || "/";
+
+const joinPath = (...parts: string[]) => {
+  const cleaned = parts
+    .filter(Boolean)
+    .map((p) => p.replace(/(^\/+|\/+?$)/g, ""))
+    .filter((p) => p.length > 0);
+  return ("/" + [BASE_PATH.replace(/(^\/+|\/+?$)/g, ""), ...cleaned].filter(Boolean).join("/")).replace(/\/+$/, "") || "/";
+};
 
 const viewToPath = (view: "solo" | "versus" | "profile" | "rank" | "blog", handle?: string | null) => {
   switch (view) {
     case "rank":
-      return "/rank";
+      return joinPath("rank");
     case "blog":
-      return "/blog";
+      return joinPath("blog");
     case "profile":
-      return handle ? `/profile/${encodeURIComponent(handle)}` : "/profile";
+      return handle ? joinPath("profile", encodeURIComponent(handle)) : joinPath("profile");
     default:
-      return "/";
+      return joinPath("");
   }
 };
 
 const pathToRoute = (pathname: string): { view: "solo" | "versus" | "profile" | "rank" | "blog"; handle: string | null } => {
-  const profileMatch = pathname.match(/^\/profile\/(.+)$/);
+  const normalized = pathname.startsWith(BASE_PATH) ? pathname.slice(BASE_PATH.length) || "/" : pathname;
+  const profileMatch = normalized.match(/^\/profile\/(.+)$/);
   if (profileMatch) {
     return { view: "profile", handle: decodeURIComponent(profileMatch[1]) || null };
   }
-  if (pathname.startsWith("/rank")) return { view: "rank", handle: null };
-  if (pathname.startsWith("/blog")) return { view: "blog", handle: null };
-  if (pathname.startsWith("/profile")) return { view: "profile", handle: null };
+  if (normalized.startsWith("/rank")) return { view: "rank", handle: null };
+  if (normalized.startsWith("/blog")) return { view: "blog", handle: null };
+  if (normalized.startsWith("/profile")) return { view: "profile", handle: null };
   return { view: "solo", handle: null };
 };
 
