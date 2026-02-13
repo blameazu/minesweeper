@@ -85,6 +85,18 @@ class MatchJoinResponse(BaseModel):
     host_id: Optional[int] = None
 
 
+class ActiveMatchResponse(BaseModel):
+    active: bool
+    match_id: Optional[int] = None
+    player_id: Optional[int] = None
+    player_token: Optional[str] = None
+    status: Optional[str] = None
+    countdown_secs: Optional[int] = None
+    started_at: Optional[datetime] = None
+    board: Optional[dict] = None
+    host_id: Optional[int] = None
+
+
 class MatchStepCreate(BaseModel):
     player_token: str
     action: Literal["reveal", "flag", "chord"]
@@ -165,12 +177,25 @@ class ProfileResponse(BaseModel):
     handle: str
     best_scores: list[ProfileBestScore]
     match_history: list[MatchHistoryItem]
+    rank_counts: dict
+
+
+class RankEntry(BaseModel):
+    handle: str
+    first: int
+
+
+class RankBoard(BaseModel):
+    top: list[RankEntry]
+    me: RankEntry | None = None
 
 
 class RecentMatchPlayer(BaseModel):
+    id: int
     name: str
     result: Optional[str]
     ready: Optional[bool] = None
+    is_host: bool = False
 
 
 class RecentMatch(BaseModel):
@@ -182,4 +207,49 @@ class RecentMatch(BaseModel):
     width: int
     height: int
     mines: int
+    host_id: Optional[int] = None
     players: list[RecentMatchPlayer]
+
+
+class BlogPostCreate(BaseModel):
+    title: constr(strip_whitespace=True, min_length=1, max_length=200)
+    content: constr(strip_whitespace=True, min_length=1, max_length=5000)
+
+
+class BlogCommentCreate(BaseModel):
+    content: constr(strip_whitespace=True, min_length=1, max_length=1000)
+
+
+class BlogVoteRequest(BaseModel):
+    value: Literal[-1, 0, 1]
+
+
+class BlogCommentRead(BaseModel):
+    id: int
+    post_id: int
+    user_id: int
+    author: str
+    content: str
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class BlogPostItem(BaseModel):
+    id: int
+    title: str
+    content: str
+    author: str
+    created_at: datetime
+    updated_at: datetime
+    upvotes: int
+    downvotes: int
+    score: int
+    comment_count: int
+    my_vote: Optional[int] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class BlogPostDetail(BlogPostItem):
+    comments: list[BlogCommentRead]

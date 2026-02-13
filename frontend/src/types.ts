@@ -101,10 +101,34 @@ export interface MatchSession {
   hostId?: number | null;
 }
 
+export interface ActiveMatchResponse {
+  active: boolean;
+  match_id?: number;
+  player_id?: number;
+  player_token?: string;
+  status?: string;
+  countdown_secs?: number;
+  started_at?: string | null;
+  board?: MatchBoard;
+  host_id?: number | null;
+}
+
+export interface RankEntry {
+  handle: string;
+  first: number;
+}
+
+export interface RankBoard {
+  top: RankEntry[];
+  me?: RankEntry | null;
+}
+
 export interface RecentMatchPlayer {
+  id: number;
   name: string;
   result?: string | null;
   ready?: boolean | null;
+  is_host?: boolean;
 }
 
 export interface RecentMatch {
@@ -116,6 +140,7 @@ export interface RecentMatch {
   width: number;
   height: number;
   mines: number;
+  host_id?: number | null;
   players: RecentMatchPlayer[];
 }
 
@@ -135,4 +160,37 @@ export interface ProfileResponse {
   handle: string;
   best_scores: ProfileBestScore[];
   match_history: MatchHistoryItem[];
+  rank_counts: {
+    first: number;
+    second: number;
+    third: number;
+    last: number;
+  };
+}
+
+export interface BlogPostItem {
+  id: number;
+  title: string;
+  content: string;
+  author: string;
+  created_at: string;
+  updated_at: string;
+  upvotes: number;
+  downvotes: number;
+  score: number;
+  comment_count: number;
+  my_vote?: number | null;
+}
+
+export interface BlogComment {
+  id: number;
+  post_id: number;
+  user_id: number;
+  author: string;
+  content: string;
+  created_at: string;
+}
+
+export interface BlogPostDetail extends BlogPostItem {
+  comments: BlogComment[];
 }

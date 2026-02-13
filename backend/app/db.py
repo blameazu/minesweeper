@@ -36,10 +36,13 @@ def _run_light_migrations() -> None:
             session.exec(text("ALTER TABLE user ADD COLUMN handle VARCHAR(50);"))
         if not _column_exists(session, "leaderboardentry", "handle"):
             session.exec(text("ALTER TABLE leaderboardentry ADD COLUMN handle VARCHAR(50);"))
+        if not _column_exists(session, "match", "last_active_at"):
+            session.exec(text("ALTER TABLE match ADD COLUMN last_active_at DATETIME DEFAULT CURRENT_TIMESTAMP;"))
 
         # Backfill defaults where applicable
         session.exec(text("UPDATE match SET countdown_secs = 300 WHERE countdown_secs IS NULL;"))
         session.exec(text("UPDATE matchplayer SET ready = 0 WHERE ready IS NULL;"))
+        session.exec(text("UPDATE match SET last_active_at = created_at WHERE last_active_at IS NULL;"))
         session.commit()
 
 

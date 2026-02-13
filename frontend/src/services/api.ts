@@ -1,4 +1,19 @@
-import type { DifficultyKey, LeaderboardEntry, MatchBoard, MatchSession, MatchState, MatchStep, RecentMatch, User, ProfileResponse } from "../types";
+import type {
+  DifficultyKey,
+  LeaderboardEntry,
+  MatchBoard,
+  MatchSession,
+  MatchState,
+  MatchStep,
+  RecentMatch,
+  User,
+  ProfileResponse,
+  RankBoard,
+  ActiveMatchResponse,
+  BlogPostItem,
+  BlogPostDetail,
+  BlogComment
+} from "../types";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
 const NGROK_HEADER = { "ngrok-skip-browser-warning": "true" };
@@ -127,6 +142,12 @@ export const fetchMatchState = async (matchId: number): Promise<MatchState> => {
   return res.json();
 };
 
+export const fetchMyActiveMatch = async (token: string): Promise<ActiveMatchResponse> => {
+  const res = await fetch(`${API_BASE}/api/match/my-active`, { headers: { ...NGROK_HEADER, ...authHeaders(token) } });
+  if (!res.ok) throw new Error(`讀取對局狀態失敗 (${res.status})`);
+  return res.json();
+};
+
 export const sendMatchStep = async (matchId: number, params: { playerToken: string; action: string; x: number; y: number; elapsed_ms?: number }) => {
   const res = await fetch(`${API_BASE}/api/match/${matchId}/step`, {
     method: "POST",
@@ -206,6 +227,90 @@ export const fetchRecentMatches = async (): Promise<RecentMatch[]> => {
 export const fetchProfile = async (token: string): Promise<ProfileResponse> => {
   const res = await fetch(`${API_BASE}/api/profile/me`, { headers: { ...NGROK_HEADER, ...authHeaders(token) } });
   if (!res.ok) throw new Error(`讀取個人資料失敗 (${res.status})`);
+  return res.json();
+};
+
+export const fetchRankBoard = async (): Promise<RankBoard> => {
+  const res = await fetch(`${API_BASE}/api/profile/rankings`, { headers: { ...NGROK_HEADER } });
+  if (!res.ok) throw new Error(`讀取排行失敗 (${res.status})`);
+  return res.json();
+};
+
+export const fetchBlogPosts = async (sort: "created" | "score" = "created"): Promise<BlogPostItem[]> => {
+  const res = await fetch(`${API_BASE}/api/blog/posts?sort=${sort}`, { headers: { ...NGROK_HEADER } });
+  if (!res.ok) throw new Error(`讀取文章失敗 (${res.status})`);
+  return res.json();
+};
+
+export const fetchMyBlogPosts = async (token: string): Promise<BlogPostItem[]> => {
+  const res = await fetch(`${API_BASE}/api/blog/posts/mine`, { headers: { ...NGROK_HEADER, ...authHeaders(token) } });
+  if (!res.ok) throw new Error(`讀取我的文章失敗 (${res.status})`);
+  return res.json();
+};
+
+export const fetchBlogPostDetail = async (postId: number, token?: string): Promise<BlogPostDetail> => {
+  const res = await fetch(`${API_BASE}/api/blog/posts/${postId}`, { headers: { ...NGROK_HEADER, ...authHeaders(token) } });
+  if (!res.ok) throw new Error(`讀取文章失敗 (${res.status})`);
+  return res.json();
+};
+
+export const createBlogPost = async (params: { title: string; content: string; token: string }): Promise<BlogPostItem> => {
+  const res = await fetch(`${API_BASE}/api/blog/posts`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...NGROK_HEADER, ...authHeaders(params.token) },
+    body: JSON.stringify({ title: params.title, content: params.content })
+  });
+  if (!res.ok) throw new Error(`新增文章失敗 (${res.status})`);
+  return res.json();
+};
+
+export const updateBlogPost = async (postId: number, params: { title: string; content: string; token: string }): Promise<BlogPostItem> => {
+  const res = await fetch(`${API_BASE}/api/blog/posts/${postId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...NGROK_HEADER, ...authHeaders(params.token) },
+    body: JSON.stringify({ title: params.title, content: params.content })
+  });
+  if (!res.ok) throw new Error(`更新文章失敗 (${res.status})`);
+  return res.json();
+};
+
+export const addBlogComment = async (postId: number, params: { content: string; token: string }): Promise<BlogComment> => {
+  const res = await fetch(`${API_BASE}/api/blog/posts/${postId}/comments`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...NGROK_HEADER, ...authHeaders(params.token) },
+    body: JSON.stringify({ content: params.content })
+  });
+  if (!res.ok) throw new Error(`新增留言失敗 (${res.status})`);
+  return res.json();
+};
+
+export const voteBlogPost = async (postId: number, params: { value: -1 | 0 | 1; token: string }): Promise<BlogPostItem> => {
+  const res = await fetch(`${API_BASE}/api/blog/posts/${postId}/vote`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...NGROK_HEADER, ...authHeaders(params.token) },
+    body: JSON.stringify({ value: params.value })
+  });
+  if (!res.ok) throw new Error(`投票失敗 (${res.status})`);
+  return res.json();
+};
+
+export const deleteBlogPost = async (postId: number, token: string): Promise<void> => {
+  const res = await fetch(`${API_BASE}/api/blog/posts/${postId}`, {
+    method: "DELETE",
+    headers: { ...NGROK_HEADER, ...authHeaders(token) }
+  });
+  if (!res.ok) throw new Error(`刪除文章失敗 (${res.status})`);
+};
+
+export const uploadBlogImage = async (file: File, token: string): Promise<{ url: string }> => {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(`${API_BASE}/api/blog/upload-image`, {
+    method: "POST",
+    headers: { ...NGROK_HEADER, ...authHeaders(token) },
+    body: form
+  });
+  if (!res.ok) throw new Error(`上傳圖片失敗 (${res.status})`);
   return res.json();
 };
 

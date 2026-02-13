@@ -2,6 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Board } from "./components/Board";
 import { useGameStore } from "./state/gameStore";
 import { difficultiesList, remainingMines, createEmptyState, reveal as replayReveal, toggleFlag as replayToggleFlag, chordReveal as replayChordReveal } from "./lib/engine";
+import MarkdownIt from "markdown-it";
+import markdownItKatex from "markdown-it-katex";
+import DOMPurify from "dompurify";
+import "katex/dist/katex.min.css";
 import type {
   DifficultyKey,
   LeaderboardEntry,
@@ -12,7 +16,9 @@ import type {
   RecentMatch,
   User,
   ProfileResponse,
-  MatchStep
+  MatchStep,
+  BlogPostItem,
+  BlogPostDetail
 } from "./types";
 import {
   createMatch,
@@ -31,7 +37,18 @@ import {
   register,
   fetchMe,
   fetchProfile,
-  fetchMatchSteps
+  fetchMatchSteps,
+  fetchRankBoard,
+  fetchMyActiveMatch,
+  fetchBlogPosts,
+  fetchBlogPostDetail,
+  fetchMyBlogPosts,
+  deleteBlogPost,
+  updateBlogPost,
+  uploadBlogImage,
+  createBlogPost,
+  addBlogComment,
+  voteBlogPost
 } from "./services/api";
 
 const formatMs = (ms: number | null | undefined) => {
@@ -82,8 +99,8 @@ const applyReplayStep = (state: BoardState, step: MatchStep): BoardState => {
 function App() {
   const { board, setDifficulty, startFresh, revealCell, toggleFlag, chordCell } = useGameStore();
   const [mode, setMode] = useState<"solo" | "versus">(() => readStored(UI_MODE_KEY, "solo", ["solo", "versus"]));
-  const [view, setView] = useState<"solo" | "versus" | "profile">(() =>
-    readStored(UI_VIEW_KEY, "solo", ["solo", "versus", "profile"])
+  const [view, setView] = useState<"solo" | "versus" | "profile" | "rank" | "blog">(() =>
+    readStored(UI_VIEW_KEY, "solo", ["solo", "versus", "profile", "rank", "blog"])
   );
   const [now, setNow] = useState(Date.now());
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
@@ -118,6 +135,44 @@ function App() {
   const [profile, setProfile] = useState<ProfileResponse | null>(null);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(false);
+  const [rankBoard, setRankBoard] = useState<RankBoard | null>(null);
+  const [rankError, setRankError] = useState<string | null>(null);
+  const [loadingRank, setLoadingRank] = useState(false);
+  const [blogPosts, setBlogPosts] = useState<BlogPostItem[]>([]);
+  const [blogLoading, setBlogLoading] = useState(false);
+  const [blogError, setBlogError] = useState<string | null>(null);
+  const [blogDetail, setBlogDetail] = useState<BlogPostDetail | null>(null);
+  const [blogDetailLoading, setBlogDetailLoading] = useState(false);
+  const [blogDetailError, setBlogDetailError] = useState<string | null>(null);
+  const [blogTitle, setBlogTitle] = useState("");
+  const [blogContent, setBlogContent] = useState("");
+  const [blogComment, setBlogComment] = useState("");
+  const [blogSort, setBlogSort] = useState<"created" | "score">("created");
+  const [myBlogPosts, setMyBlogPosts] = useState<BlogPostItem[]>([]);
+  const [myBlogLoading, setMyBlogLoading] = useState(false);
+  const [myBlogError, setMyBlogError] = useState<string | null>(null);
+  const [blogEditing, setBlogEditing] = useState(false);
+  const [blogEditTitle, setBlogEditTitle] = useState("");
+  const [blogEditContent, setBlogEditContent] = useState("");
+  const [blogImageUploading, setBlogImageUploading] = useState(false);
+
+  const md = useMemo(() => {
+    const instance = new MarkdownIt({ html: false, linkify: true, breaks: true });
+    instance.use(markdownItKatex);
+    return instance;
+  }, []);
+
+  const renderMarkdown = useCallback(
+    (text: string) => {
+      try {
+        const raw = md.render(text);
+        return DOMPurify.sanitize(raw);
+      } catch (_err) {
+        return text;
+      }
+    },
+    [md]
+  );
   const [soloDifficulty, setSoloDifficulty] = useState<DifficultyKey>(board.difficulty);
   const [versusDifficulty, setVersusDifficulty] = useState<DifficultyKey>("beginner");
   const [replayBoard, setReplayBoard] = useState<BoardState | null>(null);
@@ -307,6 +362,60 @@ function App() {
     };
   }, [token]);
 
+  useEffect(() => {
+    if (!isAuthenticated || !token) return;
+    if (vsMatch) return;
+    let cancelled = false;
+    const resume = async () => {
+      try {
+        const active = await fetchMyActiveMatch(token);
+        if (cancelled) return;
+        if (!active.active || !active.match_id || !active.player_id || !active.player_token || !active.board) return;
+        const safeStart = active.board.safe_start ?? active.board.safeStart ?? null;
+        const boardConfig = {
+          width: active.board.width,
+          height: active.board.height,
+          mines: active.board.mines,
+          seed: active.board.seed,
+          difficulty: (active.board.difficulty as DifficultyKey | null) ?? null,
+          safe_start: safeStart
+        };
+        setMode("versus");
+        setView("versus");
+        setIsSpectator(false);
+        setVsMatch({
+          matchId: active.match_id,
+          playerId: active.player_id,
+          playerToken: active.player_token,
+          board: { ...active.board, safeStart },
+          status: active.status ?? "pending",
+          countdown_secs: active.countdown_secs,
+          hostId: active.host_id ?? null
+        });
+        applyBoardConfig(boardConfig);
+        setVsStepCount(0);
+        setVsProgressUploaded(false);
+        setSelectedResultPlayerId(null);
+        setSpectatorViewPlayerId(null);
+        setSpectatorBoard(null);
+        setSpectatorBoardError(null);
+        setSpectatorBoardLoading(false);
+        resetReplay();
+
+        const state = await fetchMatchState(active.match_id);
+        if (cancelled) return;
+        setVsState(state);
+        setVsInfo(`已恢復對局 #${active.match_id}`);
+      } catch (e) {
+        // no active session or fetch failed; ignore
+      }
+    };
+    resume();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated, token, vsMatch]);
+
   const elapsedMs = useMemo(() => {
     if (!boardForView.startedAt) return 0;
     const end = boardForView.endedAt ?? now;
@@ -417,7 +526,53 @@ function App() {
   useEffect(() => {
     if (view !== "profile") return;
     refreshProfile();
+    loadMyBlogPosts();
+  }, [view, isAuthenticated, token]);
+
+  useEffect(() => {
+    if (view !== "rank") return;
+    let cancelled = false;
+    const loadRank = async () => {
+      try {
+        setLoadingRank(true);
+        setRankError(null);
+        const data = await fetchRankBoard();
+        if (!cancelled) setRankBoard(data);
+      } catch (e) {
+        if (!cancelled) setRankError(e instanceof Error ? e.message : "讀取排行失敗");
+      } finally {
+        if (!cancelled) setLoadingRank(false);
+      }
+    };
+    loadRank();
+    return () => {
+      cancelled = true;
+    };
   }, [view]);
+
+  useEffect(() => {
+    if (view !== "blog") return;
+    let cancelled = false;
+    const loadBlog = async () => {
+      try {
+        setBlogLoading(true);
+        setBlogError(null);
+        const data = await fetchBlogPosts(blogSort);
+        if (!cancelled) {
+          setBlogPosts(data);
+          setBlogDetail(null);
+        }
+      } catch (e) {
+        if (!cancelled) setBlogError(e instanceof Error ? e.message : "讀取文章失敗");
+      } finally {
+        if (!cancelled) setBlogLoading(false);
+      }
+    };
+    loadBlog();
+    return () => {
+      cancelled = true;
+    };
+  }, [view, blogSort]);
 
   // Persist versus session so browser refresh can resume.
   useEffect(() => {
@@ -750,7 +905,7 @@ function App() {
     }
   };
 
-  const handleJoinMatch = async () => {
+  const handleJoinMatch = async (targetId?: number) => {
     if (vsMatch && !isSpectator && vsState?.status !== "finished") {
       setVsError("已在對局中，請先退出或等待結束");
       return;
@@ -758,8 +913,8 @@ function App() {
     clearSpectateView();
     setVsMatch(null);
     setVsState(null);
-    const idNum = Number(joinId);
-    if (!joinId || Number.isNaN(idNum)) {
+    const idNum = targetId ?? Number(joinId);
+    if (!idNum || Number.isNaN(idNum)) {
       setVsError("請輸入有效的對局 ID");
       return;
     }
@@ -838,9 +993,9 @@ function App() {
     localStorage.removeItem(VS_SESSION_KEY);
   };
 
-  const handleSpectate = async () => {
-    const idNum = Number(spectateId);
-    if (!spectateId || Number.isNaN(idNum)) {
+  const handleSpectate = async (targetId?: number) => {
+    const idNum = targetId ?? Number(spectateId);
+    if (!idNum || Number.isNaN(idNum)) {
       setVsError("請輸入有效的觀戰 ID");
       return;
     }
@@ -1274,6 +1429,178 @@ function App() {
 
   const toggleTheme = () => setTheme((t) => (t === "light" ? "dark" : "light"));
 
+  const reloadBlogPosts = async (nextSort?: "created" | "score") => {
+    if (nextSort && nextSort !== blogSort) {
+      setBlogSort(nextSort);
+      return;
+    }
+    try {
+      setBlogLoading(true);
+      setBlogError(null);
+      const sort = nextSort ?? blogSort;
+      const data = await fetchBlogPosts(sort);
+      setBlogPosts(data);
+    } catch (e) {
+      setBlogError(e instanceof Error ? e.message : "讀取文章失敗");
+    } finally {
+      setBlogLoading(false);
+    }
+  };
+
+  const loadMyBlogPosts = async () => {
+    if (!isAuthenticated || !token) return;
+    try {
+      setMyBlogLoading(true);
+      setMyBlogError(null);
+      const data = await fetchMyBlogPosts(token);
+      setMyBlogPosts(data);
+    } catch (e) {
+      setMyBlogError(e instanceof Error ? e.message : "讀取我的文章失敗");
+    } finally {
+      setMyBlogLoading(false);
+    }
+  };
+
+  const handleOpenBlogPost = async (postId: number) => {
+    setBlogDetailLoading(true);
+    setBlogDetailError(null);
+    setBlogEditing(false);
+    try {
+      const detail = await fetchBlogPostDetail(postId, token ?? undefined);
+      setBlogDetail(detail);
+    } catch (e) {
+      setBlogDetailError(e instanceof Error ? e.message : "讀取文章失敗");
+    } finally {
+      setBlogDetailLoading(false);
+    }
+  };
+
+  const handleCreateBlogPost = async () => {
+    if (!isAuthenticated || !token) {
+      setBlogError("請先登入再發文");
+      return;
+    }
+    if (!blogTitle.trim() || !blogContent.trim()) {
+      setBlogError("標題與內容不可為空");
+      return;
+    }
+    try {
+      setBlogError(null);
+      const created = await createBlogPost({ title: blogTitle, content: blogContent, token });
+      setBlogPosts((prev) => [created, ...prev]);
+      setBlogTitle("");
+      setBlogContent("");
+      await handleOpenBlogPost(created.id);
+    } catch (e) {
+      setBlogError(e instanceof Error ? e.message : "新增文章失敗");
+    }
+  };
+
+  const handleStartEditBlog = () => {
+    if (!blogDetail) return;
+    setBlogEditTitle(blogDetail.title);
+    setBlogEditContent(blogDetail.content);
+    setBlogEditing(true);
+  };
+
+  const handleCancelEditBlog = () => {
+    setBlogEditing(false);
+    setBlogDetailError(null);
+  };
+
+  const handleSaveEditBlog = async () => {
+    if (!blogDetail) return;
+    if (!isAuthenticated || !token) {
+      setBlogDetailError("請先登入再編輯文章");
+      return;
+    }
+    if (!blogEditTitle.trim() || !blogEditContent.trim()) {
+      setBlogDetailError("標題與內容不可為空");
+      return;
+    }
+    try {
+      setBlogDetailError(null);
+      const updated = await updateBlogPost(blogDetail.id, { title: blogEditTitle, content: blogEditContent, token });
+      setBlogDetail((prev) => (prev ? { ...prev, ...updated, comments: prev.comments } : prev));
+      setBlogPosts((prev) => prev.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)));
+      setMyBlogPosts((prev) => prev.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)));
+      setBlogEditing(false);
+    } catch (e) {
+      setBlogDetailError(e instanceof Error ? e.message : "更新文章失敗");
+    }
+  };
+
+  const handleUploadImage = async (file: File, mode: "create" | "edit") => {
+    if (!isAuthenticated || !token) {
+      setBlogError("請先登入再上傳圖片");
+      return;
+    }
+    try {
+      setBlogImageUploading(true);
+      const { url } = await uploadBlogImage(file, token);
+      const snippet = `\n![](${url})\n`;
+      if (mode === "create") {
+        setBlogContent((prev) => prev + snippet);
+      } else {
+        setBlogEditContent((prev) => prev + snippet);
+      }
+    } catch (e) {
+      setBlogError(e instanceof Error ? e.message : "上傳圖片失敗");
+    } finally {
+      setBlogImageUploading(false);
+    }
+  };
+
+  const handleAddBlogComment = async () => {
+    if (!blogDetail) return;
+    if (!isAuthenticated || !token) {
+      setBlogDetailError("請先登入再留言");
+      return;
+    }
+    if (!blogComment.trim()) {
+      setBlogDetailError("留言不可為空");
+      return;
+    }
+    try {
+      setBlogDetailError(null);
+      const comment = await addBlogComment(blogDetail.id, { content: blogComment, token });
+      setBlogDetail((prev) => (prev ? { ...prev, comments: [...prev.comments, comment], comment_count: prev.comment_count + 1 } : prev));
+      setBlogComment("");
+    } catch (e) {
+      setBlogDetailError(e instanceof Error ? e.message : "新增留言失敗");
+    }
+  };
+
+  const handleVoteBlogPost = async (postId: number, value: -1 | 0 | 1, current?: number | null) => {
+    if (!isAuthenticated || !token) {
+      setBlogError("請先登入再投票");
+      return;
+    }
+    const nextValue: -1 | 0 | 1 = current === value ? 0 : value;
+    try {
+      const updated = await voteBlogPost(postId, { value: nextValue, token });
+      setBlogPosts((prev) => prev.map((p) => (p.id === postId ? { ...p, ...updated } : p)));
+      setBlogDetail((prev) => (prev && prev.id === postId ? { ...prev, ...updated, comments: prev.comments } : prev));
+    } catch (e) {
+      setBlogError(e instanceof Error ? e.message : "投票失敗");
+    }
+  };
+
+  const handleDeleteBlogPost = async (postId: number) => {
+    if (!isAuthenticated || !token) {
+      setBlogError("請先登入再刪除文章");
+      return;
+    }
+    try {
+      await deleteBlogPost(postId, token);
+      setBlogPosts((prev) => prev.filter((p) => p.id !== postId));
+      setMyBlogPosts((prev) => prev.filter((p) => p.id !== postId));
+      setBlogDetail((prev) => (prev && prev.id === postId ? null : prev));
+    } catch (e) {
+      setBlogError(e instanceof Error ? e.message : "刪除文章失敗");
+    }
+  };
+
   return (
     <div className="max-w-5xl mx-auto px-4 py-8 space-y-8 text-[var(--text-primary)]">
       <header className="flex items-baseline justify-between">
@@ -1317,6 +1644,22 @@ function App() {
             個人主頁
           </button>
           <button
+            onClick={() => setView("rank")}
+            className={`px-3 py-2 rounded-full text-sm border ${
+              view === "rank" ? "bg-[var(--accent)] text-white border-transparent" : "bg-[var(--surface-strong)] border-[var(--border)]"
+            }`}
+          >
+            Rank
+          </button>
+          <button
+            onClick={() => setView("blog")}
+            className={`px-3 py-2 rounded-full text-sm border ${
+              view === "blog" ? "bg-[var(--accent)] text-white border-transparent" : "bg-[var(--surface-strong)] border-[var(--border)]"
+            }`}
+          >
+            Blog
+          </button>
+          <button
             onClick={toggleTheme}
             className="px-3 py-2 rounded-full text-sm border bg-[var(--surface-strong)] border-[var(--border)]"
             aria-label="切換主題"
@@ -1358,6 +1701,28 @@ function App() {
                 </div>
 
                 <div>
+                  <h3 className="font-semibold mb-2">名次統計</h3>
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div className="rounded border border-[var(--border)] bg-[var(--surface-strong)] px-3 py-2 flex items-center justify-between">
+                      <span>#1</span>
+                      <span className="font-semibold">{profile.rank_counts.first}</span>
+                    </div>
+                    <div className="rounded border border-[var(--border)] bg-[var(--surface-strong)] px-3 py-2 flex items-center justify-between">
+                      <span>#2</span>
+                      <span className="font-semibold">{profile.rank_counts.second}</span>
+                    </div>
+                    <div className="rounded border border-[var(--border)] bg-[var(--surface-strong)] px-3 py-2 flex items-center justify-between">
+                      <span>#3</span>
+                      <span className="font-semibold">{profile.rank_counts.third}</span>
+                    </div>
+                    <div className="rounded border border-[var(--border)] bg-[var(--surface-strong)] px-3 py-2 flex items-center justify-between">
+                      <span>最後一名</span>
+                      <span className="font-semibold">{profile.rank_counts.last}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
                   <h3 className="font-semibold mb-2">對戰紀錄（最近 30 筆）</h3>
                   {profile.match_history.length === 0 ? (
                     <p className="text-sm opacity-70">尚無對戰紀錄</p>
@@ -1376,6 +1741,72 @@ function App() {
                             <span>結果：{renderResult(m.result, m.status)}</span>
                             <span>{m.duration_ms ? `${formatMs(m.duration_ms)} s` : "--"}</span>
                           </div>
+                          <div className="mt-2">
+                            <button
+                              onClick={() => {
+                                setMode("versus");
+                                setView("versus");
+                                setSpectateId(String(m.match_id));
+                                handleSpectate(m.match_id);
+                              }}
+                              className="px-3 py-1 rounded-full text-xs border border-[var(--border)] bg-[var(--surface)]"
+                            >
+                              觀看
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="font-semibold">我的文章</h3>
+                    <button
+                      onClick={loadMyBlogPosts}
+                      className="text-xs px-2 py-1 rounded border border-[var(--border)] bg-[var(--surface-strong)]"
+                    >
+                      重新整理
+                    </button>
+                  </div>
+                  {myBlogError && <p className="text-sm text-red-600">{myBlogError}</p>}
+                  {myBlogLoading ? (
+                    <p className="text-sm opacity-70">載入中...</p>
+                  ) : myBlogPosts.length === 0 ? (
+                    <p className="text-sm opacity-70">尚未發表文章</p>
+                  ) : (
+                    <div className="space-y-2 text-sm">
+                      {myBlogPosts.map((p) => (
+                        <div key={p.id} className="rounded border border-[var(--border)] bg-[var(--surface-strong)] px-3 py-2">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <div className="font-semibold">{p.title}</div>
+                              <div className="text-xs opacity-70">{new Date(p.created_at).toLocaleString()}</div>
+                            </div>
+                            <div className="flex items-center gap-2 text-xs">
+                              <span>👍 {p.upvotes}</span>
+                              <span>👎 {p.downvotes}</span>
+                              <span>留言 {p.comment_count}</span>
+                            </div>
+                          </div>
+                          <div className="mt-2 flex gap-2 text-xs">
+                            <button
+                              onClick={() => {
+                                setView("blog");
+                                handleOpenBlogPost(p.id);
+                              }}
+                              className="px-2 py-1 rounded border border-[var(--border)] bg-[var(--surface)]"
+                            >
+                              查看
+                            </button>
+                            <button
+                              onClick={() => handleDeleteBlogPost(p.id)}
+                              className="px-2 py-1 rounded border border-red-200 bg-red-50 text-red-700"
+                            >
+                              刪除
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -1383,6 +1814,303 @@ function App() {
                 </div>
               </div>
             ) : null}
+          </div>
+        </section>
+      ) : view === "rank" ? (
+        <section className="space-y-4">
+          <div className="bg-[var(--surface)] rounded-xl border border-[var(--border)] shadow p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">Rank (依 #1 勝場數)</h2>
+              <span className="text-xs opacity-70">前 20 名</span>
+            </div>
+            {loadingRank ? (
+              <p className="text-sm opacity-70">載入中...</p>
+            ) : rankError ? (
+              <p className="text-sm text-red-600">{rankError}</p>
+            ) : rankBoard && rankBoard.top.length > 0 ? (
+              <ol className="space-y-2 text-sm">
+                {rankBoard.top.map((r, idx) => (
+                  <li
+                    key={`${r.handle}-${idx}`}
+                    className="flex items-center justify-between rounded border border-[var(--border)] bg-[var(--surface-strong)] px-3 py-2"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-xs w-6">#{idx + 1}</span>
+                      <span className="font-semibold">{r.handle}</span>
+                    </div>
+                    <span className="font-mono">{r.first}</span>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p className="text-sm opacity-70">暫無資料</p>
+            )}
+
+            {rankBoard?.me && (
+              <div className="mt-3 rounded border border-[var(--border)] bg-[var(--surface-strong)] px-3 py-2 text-sm flex items-center justify-between">
+                <span className="opacity-70">你的 #1 勝場</span>
+                <span className="font-semibold">{rankBoard.me.first}</span>
+              </div>
+            )}
+          </div>
+        </section>
+      ) : view === "blog" ? (
+        <section className="space-y-4">
+          <div className="bg-[var(--surface)] rounded-xl border border-[var(--border)] shadow p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">Blog 發文</h2>
+              {!isAuthenticated && <span className="text-xs text-red-600">登入後才能發文</span>}
+            </div>
+            {blogError && <p className="text-sm text-red-600">{blogError}</p>}
+            <input
+              value={blogTitle}
+              onChange={(e) => setBlogTitle(e.target.value)}
+              placeholder="標題"
+              className="w-full rounded border border-[var(--border)] px-3 py-2 bg-[var(--surface-strong)]"
+              maxLength={200}
+              disabled={!isAuthenticated}
+            />
+            <textarea
+              value={blogContent}
+              onChange={(e) => setBlogContent(e.target.value)}
+              placeholder="內容"
+              className="w-full rounded border border-[var(--border)] px-3 py-2 bg-[var(--surface-strong)] min-h-[120px]"
+              maxLength={5000}
+              disabled={!isAuthenticated}
+            />
+            <div className="flex items-center justify-between text-xs opacity-80">
+              <span>支援 Markdown / LaTeX，圖片可上傳插入</span>
+              <label className="inline-flex items-center gap-2 px-2 py-1 rounded border border-[var(--border)] bg-[var(--surface-strong)] cursor-pointer text-xs">
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  disabled={!isAuthenticated || blogImageUploading}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleUploadImage(file, "create");
+                    e.target.value = "";
+                  }}
+                />
+                <span>{blogImageUploading ? "上傳中..." : "上傳圖片"}</span>
+              </label>
+            </div>
+            <button
+              onClick={handleCreateBlogPost}
+              disabled={!isAuthenticated}
+              className="w-full rounded bg-[var(--accent-strong)] text-white py-2 disabled:opacity-60"
+            >
+              發佈文章
+            </button>
+          </div>
+
+          <div className="bg-[var(--surface)] rounded-xl border border-[var(--border)] shadow p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">文章列表</h2>
+              <div className="flex items-center gap-2 text-xs">
+                <label className="opacity-70">排序</label>
+                <select
+                  value={blogSort}
+                  onChange={(e) => reloadBlogPosts(e.target.value as "created" | "score")}
+                  className="rounded border border-[var(--border)] bg-[var(--surface-strong)] px-2 py-1"
+                >
+                  <option value="created">最新</option>
+                  <option value="score">熱門 (Upvote)</option>
+                </select>
+                <button
+                  onClick={() => reloadBlogPosts()}
+                  className="px-2 py-1 rounded border border-[var(--border)] bg-[var(--surface-strong)]"
+                >
+                  重新整理
+                </button>
+              </div>
+            </div>
+            {blogLoading ? (
+              <p className="text-sm opacity-70">載入中...</p>
+            ) : blogPosts.length === 0 ? (
+              <p className="text-sm opacity-70">尚無文章</p>
+            ) : (
+              <div className="space-y-2">
+                {blogPosts.map((p) => (
+                  <div key={p.id} className="rounded border border-[var(--border)] bg-[var(--surface-strong)] p-3 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <div className="font-semibold">{p.title}</div>
+                        <div className="text-xs opacity-70">{p.author} · {new Date(p.created_at).toLocaleString()}</div>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs">
+                        <button
+                          onClick={() => handleVoteBlogPost(p.id, 1, p.my_vote ?? null)}
+                          className={`px-2 py-1 rounded border ${p.my_vote === 1 ? "bg-[var(--accent)] text-white border-transparent" : "border-[var(--border)] bg-[var(--surface)]"}`}
+                        >
+                          👍 {p.upvotes}
+                        </button>
+                        <button
+                          onClick={() => handleVoteBlogPost(p.id, -1, p.my_vote ?? null)}
+                          className={`px-2 py-1 rounded border ${p.my_vote === -1 ? "bg-[var(--accent)] text-white border-transparent" : "border-[var(--border)] bg-[var(--surface)]"}`}
+                        >
+                          👎 {p.downvotes}
+                        </button>
+                        <span className="text-xs opacity-70">留言 {p.comment_count}</span>
+                      </div>
+                    </div>
+                    <div
+                      className="text-sm opacity-80 leading-relaxed space-y-1"
+                      dangerouslySetInnerHTML={{ __html: renderMarkdown(p.content.slice(0, 220)) }}
+                    />
+                    <div className="flex gap-2 text-sm">
+                      <button
+                        onClick={() => handleOpenBlogPost(p.id)}
+                        className="px-3 py-1 rounded border border-[var(--border)] bg-[var(--surface)]"
+                      >
+                        查看留言
+                      </button>
+                      {currentUser?.handle === p.author && (
+                        <button
+                          onClick={() => handleDeleteBlogPost(p.id)}
+                          className="px-3 py-1 rounded border border-red-200 bg-red-50 text-red-700"
+                        >
+                          刪除
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="bg-[var(--surface)] rounded-xl border border-[var(--border)] shadow p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">文章內容 / 留言</h2>
+              {blogDetailLoading && <span className="text-xs opacity-70">載入中...</span>}
+            </div>
+            {blogDetailError && <p className="text-sm text-red-600">{blogDetailError}</p>}
+            {!blogDetail ? (
+              <p className="text-sm opacity-70">點擊上方「查看留言」以閱讀完整文章</p>
+            ) : (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-xl font-semibold">{blogDetail.title}</div>
+                    <div className="text-xs opacity-70">{blogDetail.author} · {new Date(blogDetail.created_at).toLocaleString()}</div>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm flex-wrap justify-end">
+                    {currentUser?.handle === blogDetail.author && (
+                      !blogEditing ? (
+                        <button
+                          onClick={handleStartEditBlog}
+                          className="px-3 py-1 rounded border border-[var(--border)] bg-[var(--surface-strong)]"
+                        >
+                          編輯
+                        </button>
+                      ) : (
+                        <div className="flex gap-2">
+                          <button
+                            onClick={handleSaveEditBlog}
+                            className="px-3 py-1 rounded border border-[var(--border)] bg-[var(--accent-strong)] text-white"
+                          >
+                            保存
+                          </button>
+                          <button
+                            onClick={handleCancelEditBlog}
+                            className="px-3 py-1 rounded border border-[var(--border)] bg-[var(--surface-strong)]"
+                          >
+                            取消
+                          </button>
+                        </div>
+                      )
+                    )}
+                    <button
+                      onClick={() => handleVoteBlogPost(blogDetail.id, 1, blogDetail.my_vote ?? null)}
+                      className={`px-3 py-1 rounded border ${blogDetail.my_vote === 1 ? "bg-[var(--accent)] text-white border-transparent" : "border-[var(--border)] bg-[var(--surface-strong)]"}`}
+                    >
+                      👍 {blogDetail.upvotes}
+                    </button>
+                    <button
+                      onClick={() => handleVoteBlogPost(blogDetail.id, -1, blogDetail.my_vote ?? null)}
+                      className={`px-3 py-1 rounded border ${blogDetail.my_vote === -1 ? "bg-[var(--accent)] text-white border-transparent" : "border-[var(--border)] bg-[var(--surface-strong)]"}`}
+                    >
+                      👎 {blogDetail.downvotes}
+                    </button>
+                  </div>
+                </div>
+                {blogEditing ? (
+                  <div className="space-y-2">
+                    <input
+                      value={blogEditTitle}
+                      onChange={(e) => setBlogEditTitle(e.target.value)}
+                      maxLength={200}
+                      className="w-full rounded border border-[var(--border)] px-3 py-2 bg-[var(--surface-strong)]"
+                    />
+                    <textarea
+                      value={blogEditContent}
+                      onChange={(e) => setBlogEditContent(e.target.value)}
+                      maxLength={5000}
+                      className="w-full rounded border border-[var(--border)] px-3 py-2 bg-[var(--surface-strong)] min-h-[160px]"
+                    />
+                    <div className="flex items-center justify-between text-xs opacity-80">
+                      <span>支援 Markdown / LaTeX</span>
+                      <label className="inline-flex items-center gap-2 px-2 py-1 rounded border border-[var(--border)] bg-[var(--surface-strong)] cursor-pointer text-xs">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          disabled={blogImageUploading}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) handleUploadImage(file, "edit");
+                            e.target.value = "";
+                          }}
+                        />
+                        <span>{blogImageUploading ? "上傳中..." : "上傳圖片"}</span>
+                      </label>
+                    </div>
+                  </div>
+                ) : (
+                  <div
+                    className="leading-relaxed bg-[var(--surface-strong)] border border-[var(--border)] rounded-lg p-3 space-y-2 text-sm"
+                    dangerouslySetInnerHTML={{ __html: renderMarkdown(blogDetail.content) }}
+                  />
+                )}
+                <div className="space-y-2">
+                  <div className="font-semibold">留言 ({blogDetail.comment_count})</div>
+                  {blogDetail.comments.length === 0 ? (
+                    <p className="text-sm opacity-70">尚無留言</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {blogDetail.comments.map((c) => (
+                        <div key={c.id} className="rounded border border-[var(--border)] bg-[var(--surface-strong)] px-3 py-2 text-sm">
+                          <div className="flex items-center justify-between">
+                            <span className="font-semibold">{c.author}</span>
+                            <span className="text-xs opacity-70">{new Date(c.created_at).toLocaleString()}</span>
+                          </div>
+                          <p className="text-sm whitespace-pre-wrap mt-1">{c.content}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="mt-2 space-y-2">
+                    {!isAuthenticated && <p className="text-sm text-red-600">登入後才能留言</p>}
+                    <textarea
+                      value={blogComment}
+                      onChange={(e) => setBlogComment(e.target.value)}
+                      placeholder="寫下你的留言"
+                      className="w-full rounded border border-[var(--border)] px-3 py-2 bg-[var(--surface-strong)] min-h-[80px]"
+                      disabled={!isAuthenticated}
+                    />
+                    <button
+                      onClick={handleAddBlogComment}
+                      disabled={!isAuthenticated}
+                      className="px-3 py-2 rounded bg-[var(--accent-strong)] text-white disabled:opacity-60"
+                    >
+                      送出留言
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </section>
       ) : (
@@ -1757,23 +2485,78 @@ function App() {
                           <li key={m.match_id} className="border border-[var(--border)] rounded-lg px-3 py-2 bg-[var(--surface-strong)]">
                             <div className="flex items-center justify-between">
                               <span className="font-semibold">#{m.match_id}</span>
-                              <span className="opacity-70">{m.status}</span>
+                              {(() => {
+                                const label =
+                                  m.status === "pending" ? "等待開始" : m.status === "active" ? "進行中" : "已結束";
+                                const tone =
+                                  m.status === "pending"
+                                    ? "bg-amber-100 text-amber-700 border-amber-200"
+                                    : m.status === "active"
+                                    ? "bg-sky-100 text-sky-700 border-sky-200"
+                                    : "bg-emerald-100 text-emerald-700 border-emerald-200";
+                                return <span className={`px-2 py-0.5 rounded-full text-xs border ${tone}`}>{label}</span>;
+                              })()}
                             </div>
                             <div className="text-xs opacity-80">
                               {m.width}x{m.height} / {m.mines} 雷
                             </div>
-                            {m.status !== "finished" && m.players.length > 0 && m.players[0]?.ready && m.players[1]?.ready && (
+                            {m.status === "pending" && m.players.length > 0 && m.players[0]?.ready && m.players[1]?.ready && (
                               <div className="text-xs text-yellow-500">已同步起始點，雙方請踩指定開局格</div>
                             )}
-                            <div className="flex flex-wrap gap-2 mt-1">
-                              {m.players.map((p, idx) => (
-                                <span
-                                  key={`${m.match_id}-${idx}-${p.name}`}
-                                  className="px-2 py-1 rounded-full text-xs border border-[var(--border)] bg-[var(--surface)]"
+                            {m.status === "pending" ? (
+                              <div className="flex flex-wrap gap-2 mt-1">
+                                {m.players.map((p) => (
+                                  <span
+                                    key={`${m.match_id}-${p.id}`}
+                                    className={`px-2 py-1 rounded-full text-xs border ${
+                                      p.ready
+                                        ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+                                        : "border-amber-300 bg-amber-50 text-amber-700"
+                                    }`}
+                                  >
+                                    {p.is_host ? "房主 · " : ""}
+                                    {p.name}：{p.ready ? "已準備" : "未準備"}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="flex flex-wrap gap-2 mt-1">
+                                {m.players.map((p) => (
+                                  <span
+                                    key={`${m.match_id}-${p.id}`}
+                                    className="px-2 py-1 rounded-full text-xs border border-[var(--border)] bg-[var(--surface)]"
+                                  >
+                                    {p.is_host ? "房主 · " : ""}
+                                    {p.name}：{renderResult(p.result, m.status)}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                            <div className="flex flex-wrap gap-2 mt-2">
+                              {m.status === "pending" && isAuthenticated && (
+                                <button
+                                  onClick={() => {
+                                    setMode("versus");
+                                    setView("versus");
+                                    setJoinId(String(m.match_id));
+                                    handleJoinMatch(m.match_id);
+                                  }}
+                                  className="px-3 py-1 rounded-full text-xs border border-[var(--border)] bg-[var(--surface)]"
                                 >
-                                  {p.name}：{p.ready ? "已準備" : "未準備"}／{renderResult(p.result, m.status)}
-                                </span>
-                              ))}
+                                  一鍵加入
+                                </button>
+                              )}
+                              <button
+                                onClick={() => {
+                                  setMode("versus");
+                                  setView("versus");
+                                  setSpectateId(String(m.match_id));
+                                  handleSpectate(m.match_id);
+                                }}
+                                className="px-3 py-1 rounded-full text-xs border border-[var(--border)] bg-[var(--surface)]"
+                              >
+                                觀看
+                              </button>
                             </div>
                           </li>
                         ))}

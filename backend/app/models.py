@@ -2,6 +2,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional
 from sqlmodel import Field, SQLModel
+from sqlalchemy import UniqueConstraint
 
 
 class LeaderboardEntry(SQLModel, table=True):
@@ -37,6 +38,7 @@ class Match(SQLModel, table=True):
     started_at: Optional[datetime] = None
     ended_at: Optional[datetime] = None
     countdown_secs: int = Field(default=300)
+    last_active_at: datetime = Field(default_factory=datetime.utcnow, index=True)
 
 
 class MatchPlayer(SQLModel, table=True):
@@ -63,4 +65,31 @@ class MatchStep(SQLModel, table=True):
     y: int
     elapsed_ms: Optional[int] = None
     seq: Optional[int] = Field(default=None, index=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class BlogPost(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", index=True)
+    title: str = Field(max_length=200)
+    content: str = Field()
+    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class BlogComment(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    post_id: int = Field(foreign_key="blogpost.id", index=True)
+    user_id: int = Field(foreign_key="user.id", index=True)
+    content: str = Field(max_length=1000)
+    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+
+
+class BlogVote(SQLModel, table=True):
+    __table_args__ = (UniqueConstraint("user_id", "post_id", name="uq_blogvote_user_post"),)
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    post_id: int = Field(foreign_key="blogpost.id", index=True)
+    user_id: int = Field(foreign_key="user.id", index=True)
+    value: int = Field(default=0)  # 1 for upvote, -1 for downvote
     created_at: datetime = Field(default_factory=datetime.utcnow)

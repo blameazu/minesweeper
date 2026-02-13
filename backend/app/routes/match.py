@@ -23,10 +23,35 @@ from ..schemas import (
     MatchDelete,
     RecentMatch,
     RecentMatchPlayer,
+    ActiveMatchResponse,
 )
 from .auth import get_current_user
 
 router = APIRouter(prefix="/api/match", tags=["match"])
+
+IDLE_MINUTES = 10
+
+
+def _touch_match(match: Match) -> None:
+    """Update last_active_at to now."""
+    match.last_active_at = datetime.utcnow()
+
+
+def _active_session_for_user(session: Session, user_id: int, exclude_match_ids: Optional[list[int]] = None) -> Optional[tuple[Match, MatchPlayer]]:
+    exclude_match_ids = exclude_match_ids or []
+    stmt = select(MatchPlayer, Match).join(Match, MatchPlayer.match_id == Match.id).where(
+        MatchPlayer.user_id == user_id,
+        Match.status != MatchStatus.finished,
+    )
+    rows = session.exec(stmt).all()
+    for player, match in rows:
+        _apply_timeout(session, match)
+        if match.status == MatchStatus.finished:
+            continue
+        if match.id in exclude_match_ids:
+            continue
+        return match, player
+    return None
 
 
 def _default_countdown(difficulty: Optional[str]) -> int:
@@ -157,12 +182,27 @@ def _compute_standings(match: Match, players: list[MatchPlayer]) -> list[tuple[i
 
 def _apply_timeout(session: Session, match: Match) -> list[MatchPlayer]:
     players = _list_players(session, match)
+    now = datetime.utcnow()
+
+    # Idle auto-close for matches with no activity for IDLE_MINUTES.
+    last_active = match.last_active_at or match.created_at
+    if match.status != MatchStatus.finished and last_active and now >= last_active + timedelta(minutes=IDLE_MINUTES):
+        for p in players:
+            if not p.result:
+                p.result = "forfeit"
+                p.finished_at = now
+        match.status = MatchStatus.finished
+        match.ended_at = now
+        _touch_match(match)
+        session.commit()
+        session.refresh(match)
+        return _list_players(session, match)
+
     if match.status == MatchStatus.finished or not match.started_at:
         return players
 
     countdown_secs = match.countdown_secs or _default_countdown(match.difficulty)
     deadline = match.started_at + timedelta(seconds=countdown_secs)
-    now = datetime.utcnow()
     if now < deadline:
         return players
 
@@ -179,6 +219,7 @@ def _apply_timeout(session: Session, match: Match) -> list[MatchPlayer]:
     match.status = MatchStatus.finished
     match.ended_at = now
 
+    _touch_match(match)
     session.commit()
     session.refresh(match)
     players = _list_players(session, match)
@@ -188,10 +229,45 @@ def _apply_timeout(session: Session, match: Match) -> list[MatchPlayer]:
     return players
 
 
+@router.get("/my-active", response_model=ActiveMatchResponse)
+async def get_my_active_match(session: Session = Depends(get_session), user=Depends(get_current_user)):
+    if not user:
+        raise HTTPException(status_code=401, detail="login required")
+
+    active = _active_session_for_user(session, user.id)
+    if not active:
+        return ActiveMatchResponse(active=False)
+
+    match, player = active
+    players = _apply_timeout(session, match)
+    if match.status == MatchStatus.finished:
+        return ActiveMatchResponse(active=False)
+
+    countdown_secs = match.countdown_secs or _default_countdown(match.difficulty)
+    return ActiveMatchResponse(
+        active=True,
+        match_id=match.id,
+        player_id=player.id,
+        player_token=player.token,
+        status=match.status.value,
+        countdown_secs=countdown_secs,
+        started_at=match.started_at,
+        board={"width": match.width, "height": match.height, "mines": match.mines, "seed": match.seed, "safe_start": _safe_start(match)},
+        host_id=_select_host(players),
+    )
+
+
 @router.post("", response_model=MatchCreateResponse)
 async def create_match(payload: MatchCreate, session: Session = Depends(get_session), user=Depends(get_current_user)):
     if not user:
         raise HTTPException(status_code=401, detail="login required")
+    active = _active_session_for_user(session, user.id)
+    if active:
+        match, player = active
+        raise HTTPException(
+            status_code=409,
+            detail={"message": "already in an active match", "match_id": match.id, "player_id": player.id, "player_token": player.token},
+        )
     countdown_secs = payload.countdown_secs if payload.countdown_secs is not None else _default_countdown(payload.difficulty)
     match = Match(
         width=payload.width,
@@ -204,10 +280,12 @@ async def create_match(payload: MatchCreate, session: Session = Depends(get_sess
     session.add(match)
     session.commit()
     session.refresh(match)
+    _touch_match(match)
 
     token = secrets.token_urlsafe(16)
     player = MatchPlayer(match_id=match.id, name=user.handle, user_id=user.id, token=token)
     session.add(player)
+    _touch_match(match)
     session.commit()
     session.refresh(player)
 
@@ -228,9 +306,28 @@ async def join_match(match_id: int, payload: MatchJoin, session: Session = Depen
     match = _get_match(session, match_id)
     _ensure_joinable(session, match)
 
+    # Block joining other matches if user already has an active one.
+    active_elsewhere = _active_session_for_user(session, user.id, exclude_match_ids=[match.id])
+    if active_elsewhere:
+        active_match, active_player = active_elsewhere
+        raise HTTPException(
+            status_code=409,
+            detail={"message": "already in another active match", "match_id": active_match.id, "player_id": active_player.id, "player_token": active_player.token},
+        )
+
     existing_players = _list_players(session, match)
-    if any(p.user_id == user.id for p in existing_players):
-        raise HTTPException(status_code=400, detail="cannot join own match")
+    existing_same_user = next((p for p in existing_players if p.user_id == user.id), None)
+    if existing_same_user:
+        _touch_match(match)
+        session.commit()
+        session.refresh(existing_same_user)
+        return MatchJoinResponse(
+            match_id=match.id,
+            player_id=existing_same_user.id,
+            player_token=existing_same_user.token,
+            board={"width": match.width, "height": match.height, "mines": match.mines, "seed": match.seed, "safe_start": _safe_start(match)},
+            host_id=_select_host(existing_players),
+        )
     if any(p.name == user.handle for p in existing_players):
         raise HTTPException(status_code=400, detail="handle already in match")
 
@@ -238,6 +335,7 @@ async def join_match(match_id: int, payload: MatchJoin, session: Session = Depen
     player = MatchPlayer(match_id=match.id, name=user.handle, user_id=user.id, token=token)
     session.add(player)
 
+    _touch_match(match)
     session.commit()
     session.refresh(player)
     session.refresh(match)
@@ -261,6 +359,7 @@ async def set_ready(match_id: int, payload: MatchReady, session: Session = Depen
         raise HTTPException(status_code=400, detail="match finished")
 
     player.ready = payload.ready
+    _touch_match(match)
     session.commit()
     session.refresh(match)
     return {"ok": True, "status": match.status.value, "started_at": match.started_at, "countdown_secs": match.countdown_secs}
@@ -291,6 +390,7 @@ async def start_match(match_id: int, payload: MatchReady, session: Session = Dep
     if not match.countdown_secs:
         match.countdown_secs = _default_countdown(match.difficulty)
 
+    _touch_match(match)
     session.commit()
     session.refresh(match)
     return {"ok": True, "status": match.status.value, "started_at": match.started_at, "countdown_secs": match.countdown_secs}
@@ -350,6 +450,7 @@ async def submit_step(match_id: int, payload: MatchStepCreate, session: Session 
     )
     player.steps_count = next_seq
     session.add(step)
+    _touch_match(match)
     session.commit()
     return {"ok": True}
 
@@ -366,6 +467,7 @@ async def finish_match(match_id: int, payload: MatchFinish, session: Session = D
     if match.status == MatchStatus.finished:
         if payload.progress is not None and player.progress is None:
             player.progress = json.dumps(payload.progress)
+            _touch_match(match)
             session.commit()
         return {"ok": True}
 
@@ -413,9 +515,11 @@ async def finish_match(match_id: int, payload: MatchFinish, session: Session = D
             p.finished_at = p.finished_at or now
         match.status = MatchStatus.finished
         match.ended_at = now
+        _touch_match(match)
         session.commit()
         return {"ok": True}
 
+    _touch_match(match)
     session.commit()
     return {"ok": True}
 
@@ -471,6 +575,7 @@ async def leave_match(match_id: int, payload: MatchDelete, session: Session = De
     match.status = MatchStatus.pending
     match.started_at = None
     match.ended_at = None
+    _touch_match(match)
     session.commit()
     session.refresh(match)
     return {"ok": True, "left": True, "players": [p.id for p in remaining], "host_id": _select_host(remaining)}
@@ -540,6 +645,7 @@ async def recent_matches(session: Session = Depends(get_session)):
     for match in matches:
         _apply_timeout(session, match)
         players = players_by_match.get(match.id, []) if match.id is not None else []
+        host_id = _select_host(players)
         recent.append(
             RecentMatch(
                 match_id=match.id,
@@ -550,7 +656,10 @@ async def recent_matches(session: Session = Depends(get_session)):
                 width=match.width,
                 height=match.height,
                 mines=match.mines,
-                players=[RecentMatchPlayer(name=p.name, result=p.result, ready=p.ready) for p in players],
+                host_id=host_id,
+                players=[
+                    RecentMatchPlayer(id=p.id, name=p.name, result=p.result, ready=p.ready, is_host=p.id == host_id) for p in players
+                ],
             )
         )
 

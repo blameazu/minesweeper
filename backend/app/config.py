@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     jwt_secret: str = "change-me-secret"
     jwt_algorithm: str = "HS256"
     jwt_expires_minutes: int = 24 * 60
+    upload_dir: str = "./uploads"
 
     class Config:
         env_file = ".env"
