@@ -24,6 +24,16 @@ export const submitScore = async (params: {
   return res.json();
 };
 
+export const leaveMatch = async (matchId: number, params: { playerToken: string }) => {
+  const res = await fetch(`${API_BASE}/api/match/${matchId}/leave`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...NGROK_HEADER },
+    body: JSON.stringify({ player_token: params.playerToken })
+  });
+  if (!res.ok) throw new Error(`離開對局失敗 (${res.status})`);
+  return res.json();
+};
+
 export const fetchLeaderboard = async (difficulty: DifficultyKey): Promise<LeaderboardEntry[]> => {
   const res = await fetch(`${API_BASE}/api/leaderboard?difficulty=${difficulty}`, {
     headers: { ...NGROK_HEADER }

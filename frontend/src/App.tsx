@@ -22,6 +22,7 @@ import {
   fetchRecentMatches,
   finishMatch,
   joinMatch,
+  leaveMatch,
   setReady,
   sendMatchStep,
   submitScore,
@@ -707,11 +708,16 @@ function App() {
     }
     setVsError(null);
     try {
-      const soloMatch = (vsState?.players?.length ?? 0) <= 1;
-      const notStarted = !matchStarted || vsState?.status !== "active";
-      if (!isSpectator && soloMatch && notStarted) {
-        await deleteMatch(vsMatch.matchId, { playerToken: vsMatch.playerToken });
-        setVsInfo("已退出並刪除對局");
+      const notStarted = !matchStarted;
+      if (!isSpectator && notStarted) {
+        const soloMatch = (vsState?.players?.length ?? 0) <= 1;
+        if (soloMatch) {
+          await deleteMatch(vsMatch.matchId, { playerToken: vsMatch.playerToken });
+          setVsInfo("已退出並刪除對局");
+        } else {
+          await leaveMatch(vsMatch.matchId, { playerToken: vsMatch.playerToken });
+          setVsInfo("已退出對局");
+        }
       } else {
         setVsInfo("已退出對局");
       }

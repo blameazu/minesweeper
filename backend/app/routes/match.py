@@ -72,6 +72,15 @@ def _list_players(session: Session, match: Match) -> list[MatchPlayer]:
     return session.exec(stmt).all()
 
 
+def _remove_player(session: Session, match: Match, player: MatchPlayer) -> None:
+    steps_stmt = select(MatchStep).where(MatchStep.match_id == match.id, MatchStep.player_id == player.id)
+    for step in session.exec(steps_stmt):
+        session.delete(step)
+    session.delete(player)
+    session.commit()
+    session.refresh(match)
+
+
 def _player_to_schema(player: MatchPlayer) -> MatchStatePlayer:
     progress = None
     if player.progress:
@@ -335,6 +344,33 @@ async def delete_match(match_id: int, payload: MatchDelete, session: Session = D
     session.delete(match)
     session.commit()
     return {"ok": True, "deleted": True}
+
+
+@router.post("/{match_id}/leave")
+async def leave_match(match_id: int, payload: MatchDelete, session: Session = Depends(get_session)):
+    match = _get_match(session, match_id)
+    player = _get_player_by_token(session, payload.player_token)
+    if not player or player.match_id != match.id:
+        raise HTTPException(status_code=403, detail="invalid player token")
+
+    now = datetime.utcnow()
+    if match.status == MatchStatus.finished or (match.started_at and now >= match.started_at):
+        raise HTTPException(status_code=400, detail="cannot leave a started or finished match")
+
+    _remove_player(session, match, player)
+
+    remaining = _list_players(session, match)
+    if not remaining:
+        session.delete(match)
+        session.commit()
+        return {"ok": True, "deleted": True}
+
+    match.status = MatchStatus.pending
+    match.started_at = None
+    match.ended_at = None
+    session.commit()
+    session.refresh(match)
+    return {"ok": True, "left": True, "players": [p.id for p in remaining]}
 
 
 @router.get("/{match_id}/steps", response_model=list[MatchStepRead])
