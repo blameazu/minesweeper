@@ -91,6 +91,7 @@ function App() {
   const [vsMatch, setVsMatch] = useState<MatchSession | null>(null);
   const [vsState, setVsState] = useState<MatchState | null>(null);
   const vsStateRef = useRef<MatchState | null>(null);
+  const vsPrevStatusRef = useRef<string | null>(null);
   const [isSpectator, setIsSpectator] = useState(false);
   const [vsError, setVsError] = useState<string | null>(null);
   const [vsInfo, setVsInfo] = useState<string | null>(null);
@@ -112,6 +113,7 @@ function App() {
   const [replayPlaying, setReplayPlaying] = useState(false);
   const [replayLoading, setReplayLoading] = useState(false);
   const [replayError, setReplayError] = useState<string | null>(null);
+  const [replaySpeed, setReplaySpeed] = useState<"slow" | "normal" | "fast">("normal");
   const [spectatorViewPlayerId, setSpectatorViewPlayerId] = useState<number | null>(null);
   const [spectatorBoard, setSpectatorBoard] = useState<BoardState | null>(null);
   const [spectatorBoardLoading, setSpectatorBoardLoading] = useState(false);
@@ -120,6 +122,7 @@ function App() {
   const isAuthenticated = !!currentUser && !!token;
 
   const boardForView = useMemo(() => {
+    // Main board: show live board; if在觀戰模式則顯示觀戰棋盤，不受回放棋盤干擾。
     if (isSpectator) {
       return spectatorBoard ?? board;
     }
@@ -291,6 +294,17 @@ function App() {
     return "進行中";
   }, [boardForView.status, mode]);
 
+  const replayDelayMs = useMemo(() => {
+    switch (replaySpeed) {
+      case "slow":
+        return 900;
+      case "fast":
+        return 350;
+      default:
+        return 600;
+    }
+  }, [replaySpeed]);
+
   const myPlayer = useMemo(() => {
     if (!vsMatch || !vsState) return null;
     return vsState.players.find((p) => p.id === vsMatch.playerId) ?? null;
@@ -394,6 +408,8 @@ function App() {
         const state = await fetchMatchState(vsMatch.matchId);
         if (cancelled) return;
         setVsError(null);
+        const prevStatus = vsPrevStatusRef.current;
+        vsPrevStatusRef.current = state.status;
         setVsState(state);
         setVsMatch((m) =>
           m
@@ -410,7 +426,7 @@ function App() {
               }
             : m
         );
-        if (state.status === "finished") {
+        if (state.status === "finished" && prevStatus !== "finished") {
           setIsSpectator(true);
           resetReplay();
         }
@@ -615,9 +631,9 @@ function App() {
       const step = replaySteps[replayIndex];
       setReplayBoard((prev) => (prev ? applyReplayStep(prev, step) : prev));
       setReplayIndex((i) => i + 1);
-    }, 450);
+    }, replayDelayMs);
     return () => clearTimeout(timer);
-  }, [replayPlaying, replayBoard, replayIndex, replaySteps]);
+  }, [replayDelayMs, replayIndex, replayPlaying, replayBoard, replaySteps]);
 
   const applyBoardConfig = (config: {
     width: number;
@@ -660,7 +676,7 @@ function App() {
       setVsError("已在對局中，請先退出或等待結束");
       return;
     }
-    setIsSpectator(false);
+    clearSpectateView();
     if (!isAuthenticated || !currentUser) {
       setVsError("請先登入");
       return;
@@ -702,7 +718,7 @@ function App() {
       setVsError("已在對局中，請先退出或等待結束");
       return;
     }
-    setIsSpectator(false);
+    clearSpectateView();
     const idNum = Number(joinId);
     if (!joinId || Number.isNaN(idNum)) {
       setVsError("請輸入有效的對局 ID");
@@ -954,22 +970,31 @@ function App() {
     if (!vsMatch || !vsState) return;
     const player = vsState.players.find((p) => p.id === selectedResultPlayerId) ?? vsState.players[0];
     if (!player) return;
-    resetReplay();
     setReplayLoading(true);
     setReplayError(null);
+    setReplayPlaying(false);
+    setReplayIndex(0);
     const baseBoard = buildReplayBoard();
-    const hasBoard = !!baseBoard;
-    if (hasBoard) setReplayBoard(baseBoard);
+    if (!baseBoard) {
+      setReplayLoading(false);
+      setReplayError("無法建立回放棋盤");
+      return;
+    }
     try {
       const steps = await fetchMatchSteps(vsMatch.matchId);
-      const filtered = steps.filter((s) => s.player_name === player.name);
-      setReplaySteps(filtered);
-      setReplayPlaying(filtered.length > 0 && hasBoard);
+      const ordered = steps.sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
+      setReplayBoard(baseBoard);
+      setReplaySteps(ordered);
+      setReplayIndex(0);
+      setReplayPlaying(ordered.length > 0);
+      if (ordered.length === 0) {
+        setReplayError("沒有找到任何步驟");
+        setReplayPlaying(false);
+      }
     } catch (e) {
       setReplayError(e instanceof Error ? e.message : "載入步驟失敗");
     } finally {
       setReplayLoading(false);
-      setReplayIndex(0);
     }
   };
 
@@ -1091,6 +1116,14 @@ function App() {
     setReplayIndex(0);
     setReplayPlaying(false);
     setReplayError(null);
+  };
+
+  const clearSpectateView = () => {
+    setIsSpectator(false);
+    setSpectatorViewPlayerId(null);
+    setSpectatorBoard(null);
+    setSpectatorBoardError(null);
+    setSpectatorBoardLoading(false);
   };
 
   const toggleTheme = () => setTheme((t) => (t === "light" ? "dark" : "light"));
@@ -1634,8 +1667,14 @@ function App() {
                           </button>
                           <button
                             onClick={() => {
+                              const base = buildReplayBoard();
+                              if (!base) {
+                                setReplayError("無法重建回放棋盤");
+                                setReplayPlaying(false);
+                                return;
+                              }
                               setReplayIndex(0);
-                              setReplayBoard(buildReplayBoard());
+                              setReplayBoard(base);
                               setReplayPlaying(false);
                               setReplayError(null);
                             }}
@@ -1644,6 +1683,18 @@ function App() {
                           >
                             重設
                           </button>
+                          <label className="flex items-center gap-1 text-xs opacity-80">
+                            <span>速度</span>
+                            <select
+                              value={replaySpeed}
+                              onChange={(e) => setReplaySpeed(e.target.value as typeof replaySpeed)}
+                              className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1"
+                            >
+                              <option value="slow">慢</option>
+                              <option value="normal">正常</option>
+                              <option value="fast">快</option>
+                            </select>
+                          </label>
                         </div>
                       </div>
                       {replayError && <p className="text-sm text-red-600">{replayError}</p>}

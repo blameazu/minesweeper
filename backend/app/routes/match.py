@@ -245,8 +245,7 @@ async def submit_step(match_id: int, payload: MatchStepCreate, session: Session 
     players = _apply_timeout(session, match)
     if match.status != MatchStatus.active:
         raise HTTPException(status_code=400, detail="match not active")
-    if match.started_at and datetime.utcnow() < match.started_at:
-        raise HTTPException(status_code=400, detail="match not started")
+    # Allow slight clock drift: accept steps as soon as match is active, even if local clock is ahead of server start_at.
 
     stmt = select(MatchStep).where(MatchStep.match_id == match.id, MatchStep.player_id == player.id).order_by(MatchStep.seq.desc())
     last_step = session.exec(stmt).first()
