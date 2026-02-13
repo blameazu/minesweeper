@@ -751,6 +751,8 @@ function App() {
       return;
     }
     clearSpectateView();
+    setVsMatch(null);
+    setVsState(null);
     const idNum = Number(joinId);
     if (!joinId || Number.isNaN(idNum)) {
       setVsError("請輸入有效的對局 ID");

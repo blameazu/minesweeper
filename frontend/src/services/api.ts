@@ -100,7 +100,16 @@ export const joinMatch = async (matchId: number, params: { token: string }): Pro
     headers: { "Content-Type": "application/json", ...NGROK_HEADER, ...authHeaders(params.token) },
     body: JSON.stringify({ player: "" })
   });
-  if (!res.ok) throw new Error(`加入對局失敗 (${res.status})`);
+  if (!res.ok) {
+    let detail = "";
+    try {
+      const data = await res.json();
+      detail = data?.detail ? `: ${data.detail}` : "";
+    } catch {
+      /* ignore parse errors */
+    }
+    throw new Error(`加入對局失敗 (${res.status})${detail}`);
+  }
   const data = await res.json();
   return {
     matchId: data.match_id,
