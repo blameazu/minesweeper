@@ -302,7 +302,7 @@ export const deleteBlogPost = async (postId: number, token: string): Promise<voi
   if (!res.ok) throw new Error(`刪除文章失敗 (${res.status})`);
 };
 
-export const uploadBlogImage = async (file: File, token: string): Promise<{ url: string }> => {
+export const uploadBlogImage = async (file: File, token: string): Promise<{ url: string; absolute_url?: string }> => {
   const form = new FormData();
   form.append("file", file);
   const res = await fetch(`${API_BASE}/api/blog/upload-image`, {

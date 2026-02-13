@@ -3,7 +3,7 @@ from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Request
 from sqlalchemy import func, case
 from sqlmodel import Session, select
 
@@ -247,7 +247,7 @@ async def delete_post(post_id: int, session: Session = Depends(get_session), use
 
 
 @router.post("/upload-image")
-async def upload_image(file: UploadFile = File(...), user=Depends(get_current_user)):
+async def upload_image(request: Request, file: UploadFile = File(...), user=Depends(get_current_user)):
     if not user:
         raise HTTPException(status_code=401, detail="login required")
 
@@ -268,4 +268,5 @@ async def upload_image(file: UploadFile = File(...), user=Depends(get_current_us
     with open(dest, "wb") as f:
         f.write(data)
 
-    return {"url": f"/uploads/{filename}"}
+    base = str(request.base_url).rstrip("/")
+    return {"url": f"/uploads/{filename}", "absolute_url": f"{base}/uploads/{filename}"}

@@ -1537,8 +1537,9 @@ function App() {
     }
     try {
       setBlogImageUploading(true);
-      const { url } = await uploadBlogImage(file, token);
-      const snippet = `\n![](${url})\n`;
+      const { url, absolute_url } = await uploadBlogImage(file, token);
+      const link = absolute_url || url;
+      const snippet = `\n![](${link})\n`;
       if (mode === "create") {
         setBlogContent((prev) => prev + snippet);
       } else {
