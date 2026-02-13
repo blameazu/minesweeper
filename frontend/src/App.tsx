@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Board } from "./components/Board";
 import { useGameStore } from "./state/gameStore";
-import { difficultiesList, remainingMines } from "./lib/engine";
+import { difficultiesList, remainingMines, createEmptyState, reveal as replayReveal, toggleFlag as replayToggleFlag, chordReveal as replayChordReveal } from "./lib/engine";
 import type {
   DifficultyKey,
   LeaderboardEntry,
@@ -11,7 +11,8 @@ import type {
   BoardState,
   RecentMatch,
   User,
-  ProfileResponse
+  ProfileResponse,
+  MatchStep
 } from "./types";
 import {
   createMatch,
@@ -27,7 +28,8 @@ import {
   login,
   register,
   fetchMe,
-  fetchProfile
+  fetchProfile,
+  fetchMatchSteps
 } from "./services/api";
 
 const formatMs = (ms: number | null | undefined) => {
@@ -51,6 +53,19 @@ const parseUtcMillis = (ts?: string | null) => {
   const withZone = /[zZ]|[+-]\d\d:?\d\d$/.test(trimmed) ? trimmed : `${trimmed}Z`;
   const ms = Date.parse(withZone);
   return Number.isNaN(ms) ? null : ms;
+};
+
+const applyReplayStep = (state: BoardState, step: MatchStep): BoardState => {
+  switch (step.action) {
+    case "reveal":
+      return replayReveal(state, step.x, step.y);
+    case "flag":
+      return replayToggleFlag(state, step.x, step.y);
+    case "chord":
+      return replayChordReveal(state, step.x, step.y);
+    default:
+      return state;
+  }
 };
 
 function App() {
@@ -87,6 +102,14 @@ function App() {
   const [profile, setProfile] = useState<ProfileResponse | null>(null);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(false);
+  const [soloDifficulty, setSoloDifficulty] = useState<DifficultyKey>(board.difficulty);
+  const [versusDifficulty, setVersusDifficulty] = useState<DifficultyKey>("beginner");
+  const [replayBoard, setReplayBoard] = useState<BoardState | null>(null);
+  const [replaySteps, setReplaySteps] = useState<MatchStep[]>([]);
+  const [replayIndex, setReplayIndex] = useState(0);
+  const [replayPlaying, setReplayPlaying] = useState(false);
+  const [replayLoading, setReplayLoading] = useState(false);
+  const [replayError, setReplayError] = useState<string | null>(null);
 
   const isAuthenticated = !!currentUser && !!token;
 
@@ -110,6 +133,7 @@ function App() {
       setVsProgressUploaded(false);
       setVsStepCount(0);
       setSelectedResultPlayerId(null);
+      resetReplay();
 
       fetchMatchState(parsed.matchId)
         .then((state) => {
@@ -121,7 +145,11 @@ function App() {
             difficulty: state.difficulty as DifficultyKey | null,
             safe_start: state.safe_start ?? null
           });
+          if (state.difficulty) {
+            setVersusDifficulty(state.difficulty as DifficultyKey);
+          }
           setVsState(state);
+          resetReplay();
           setVsMatch((m) =>
             m
               ? {
@@ -152,6 +180,27 @@ function App() {
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
   }, [theme]);
+
+  useEffect(() => {
+    if (mode === "solo") {
+      setDifficulty(soloDifficulty);
+      startFresh();
+    } else if (mode === "versus") {
+      if (vsMatch) {
+        applyBoardConfig({
+          width: vsMatch.board.width,
+          height: vsMatch.board.height,
+          mines: vsMatch.board.mines,
+          seed: vsMatch.board.seed,
+          difficulty: vsMatch.board.difficulty as DifficultyKey | null,
+          safe_start: vsMatch.board.safeStart ?? null
+        });
+      } else {
+        setDifficulty(versusDifficulty);
+        startFresh();
+      }
+    }
+  }, [mode, soloDifficulty, versusDifficulty, vsMatch]);
 
   useEffect(() => {
     setAutoSubmitted(false);
@@ -341,6 +390,10 @@ function App() {
               }
             : m
         );
+        if (state.status === "finished") {
+          setIsSpectator(true);
+          resetReplay();
+        }
       } catch (err) {
         if (!cancelled) {
           setVsError(err instanceof Error ? err.message : "對局狀態讀取失敗");
@@ -390,6 +443,7 @@ function App() {
     if (vsState.status !== "finished") {
       setVsProgressUploaded(false);
       setSelectedResultPlayerId(null);
+      resetReplay();
       return;
     }
     if (selectedResultPlayerId === null && vsState.players.length > 0) {
@@ -437,12 +491,24 @@ function App() {
     });
   }, [mode, vsState?.status, myPlayer]);
 
-  const handleDifficulty = (key: DifficultyKey) => {
-    if (mode === "versus") {
-      setVsError("對戰中不可切換難度");
+  const handleSoloDifficulty = (key: DifficultyKey) => {
+    setSoloDifficulty(key);
+    if (mode === "solo") {
+      setDifficulty(key);
+      startFresh();
+    }
+  };
+
+  const handleVersusDifficulty = (key: DifficultyKey) => {
+    if (vsMatch && vsState?.status !== "finished") {
+      setVsError("對戰進行中，無法切換難度");
       return;
     }
-    setDifficulty(key);
+    setVersusDifficulty(key);
+    if (mode === "versus" && !vsMatch) {
+      setDifficulty(key);
+      startFresh();
+    }
   };
 
   const handleSubmit = async () => {
@@ -489,6 +555,32 @@ function App() {
       cancelled = true;
     };
   }, [autoSubmitted, board.difficulty, board.endedAt, board.startedAt, board.status, elapsedMs, isAuthenticated, token, currentUser, submitting]);
+
+  useEffect(() => {
+    if (selectedResultPlayerId === null) return;
+    resetReplay();
+  }, [selectedResultPlayerId, vsMatch?.matchId]);
+
+  useEffect(() => {
+    if (vsState?.status === "finished" && !isSpectator) {
+      setIsSpectator(true);
+    }
+  }, [vsState?.status, isSpectator]);
+
+  useEffect(() => {
+    if (!replayPlaying) return;
+    if (!replayBoard) return;
+    if (replayIndex >= replaySteps.length) {
+      setReplayPlaying(false);
+      return;
+    }
+    const timer = setTimeout(() => {
+      const step = replaySteps[replayIndex];
+      setReplayBoard((prev) => (prev ? applyReplayStep(prev, step) : prev));
+      setReplayIndex((i) => i + 1);
+    }, 450);
+    return () => clearTimeout(timer);
+  }, [replayPlaying, replayBoard, replayIndex, replaySteps]);
 
   const applyBoardConfig = (config: {
     width: number;
@@ -560,6 +652,7 @@ function App() {
       setVsStepCount(0);
       setVsProgressUploaded(false);
       setSelectedResultPlayerId(null);
+      resetReplay();
       applyBoardConfig(session.board);
       setVsInfo(`已建立對局，分享 ID: ${session.matchId}`);
     } catch (e) {
@@ -598,6 +691,7 @@ function App() {
       setVsStepCount(0);
       setVsProgressUploaded(false);
       setSelectedResultPlayerId(null);
+      resetReplay();
       applyBoardConfig(session.board);
       setVsInfo(`已加入對局 #${session.matchId}`);
     } catch (e) {
@@ -633,6 +727,7 @@ function App() {
     setVsStepCount(0);
     setVsProgressUploaded(false);
     setSelectedResultPlayerId(null);
+    resetReplay();
     startFresh();
     localStorage.removeItem(VS_SESSION_KEY);
   };
@@ -664,6 +759,7 @@ function App() {
       setVsStepCount(0);
       setVsProgressUploaded(false);
       setSelectedResultPlayerId(state.players[0]?.id ?? null);
+      resetReplay();
       setVsInfo(`觀戰對局 #${idNum}`);
     } catch (e) {
       setVsError(e instanceof Error ? e.message : "觀戰載入失敗");
@@ -737,10 +833,47 @@ function App() {
           setRecentError(e instanceof Error ? e.message : "讀取最近對戰失敗");
         }
         setVsMatch({ ...vsMatch, status: "finished" });
+        setIsSpectator(true);
+        resetReplay();
         setVsInfo(current.status === "won" ? "你完成了！" : "你踩雷了");
       } catch (e) {
         setVsError(e instanceof Error ? e.message : "結束對局失敗");
       }
+    }
+  };
+
+  const buildReplayBoard = () => {
+    if (!vsState) return null;
+    const baseDifficulty = (vsState.difficulty as DifficultyKey | null) ?? versusDifficulty;
+    return createEmptyState(baseDifficulty, {
+      width: vsState.width,
+      height: vsState.height,
+      mines: vsState.mines,
+      seed: vsState.seed,
+      safeStart: vsState.safe_start ?? null
+    });
+  };
+
+  const startReplayForSelected = async () => {
+    if (!vsMatch || !vsState) return;
+    const player = vsState.players.find((p) => p.id === selectedResultPlayerId) ?? vsState.players[0];
+    if (!player) return;
+    resetReplay();
+    setReplayLoading(true);
+    setReplayError(null);
+    const baseBoard = buildReplayBoard();
+    const hasBoard = !!baseBoard;
+    if (hasBoard) setReplayBoard(baseBoard);
+    try {
+      const steps = await fetchMatchSteps(vsMatch.matchId);
+      const filtered = steps.filter((s) => s.player_name === player.name);
+      setReplaySteps(filtered);
+      setReplayPlaying(filtered.length > 0 && hasBoard);
+    } catch (e) {
+      setReplayError(e instanceof Error ? e.message : "載入步驟失敗");
+    } finally {
+      setReplayLoading(false);
+      setReplayIndex(0);
     }
   };
 
@@ -757,6 +890,12 @@ function App() {
       }
       if (preStartLeft !== null && preStartLeft > 0) {
         setVsError("對局即將開始，請稍候");
+        return;
+      }
+      const safe = board.safeStart;
+      const notStarted = !board.startedAt && board.status === "idle";
+      if (safe && notStarted && (x !== safe.x || y !== safe.y)) {
+        setVsError(`請先踩起始點 (${safe.x}, ${safe.y})`);
         return;
       }
     }
@@ -781,6 +920,12 @@ function App() {
         setVsError("對局即將開始，請稍候");
         return;
       }
+      const safe = board.safeStart;
+      const notStarted = !board.startedAt && board.status === "idle";
+      if (safe && notStarted) {
+        setVsError(`請先踩起始點 (${safe.x}, ${safe.y})`);
+        return;
+      }
     }
     toggleFlag(x, y);
     const nextCount = vsStepCount + 1;
@@ -801,6 +946,12 @@ function App() {
       }
       if (preStartLeft !== null && preStartLeft > 0) {
         setVsError("對局即將開始，請稍候");
+        return;
+      }
+      const safe = board.safeStart;
+      const notStarted = !board.startedAt && board.status === "idle";
+      if (safe && notStarted) {
+        setVsError(`請先踩起始點 (${safe.x}, ${safe.y})`);
         return;
       }
     }
@@ -836,6 +987,14 @@ function App() {
     setToken(null);
     setCurrentUser(null);
     localStorage.removeItem("auth_token");
+  };
+
+  const resetReplay = () => {
+    setReplayBoard(null);
+    setReplaySteps([]);
+    setReplayIndex(0);
+    setReplayPlaying(false);
+    setReplayError(null);
   };
 
   const toggleTheme = () => setTheme((t) => (t === "light" ? "dark" : "light"));
@@ -881,31 +1040,6 @@ function App() {
             }`}
           >
             個人主頁
-          </button>
-          {difficultiesList.map((d) => (
-            <button
-              key={d.key}
-              onClick={() => handleDifficulty(d.key)}
-              className={`px-3 py-2 rounded-full text-sm border ${
-                board.difficulty === d.key
-                  ? "bg-[var(--accent)] text-white border-transparent"
-                  : "bg-[var(--surface-strong)] border-[var(--border)]"
-              }`}
-            >
-              {d.label}
-            </button>
-          ))}
-          <button
-            onClick={() => {
-              if (mode === "versus") {
-                setVsError("對戰中不可重新洗盤");
-                return;
-              }
-              startFresh();
-            }}
-            className="px-3 py-2 rounded-full text-sm border bg-[var(--accent-strong)] text-white border-transparent"
-          >
-            重新開始
           </button>
           <button
             onClick={toggleTheme}
@@ -1074,6 +1208,36 @@ function App() {
               {mode === "solo" ? (
                 <>
                   <div className="bg-[var(--surface)] rounded-xl border border-[var(--border)] shadow p-4 space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <h2 className="text-lg font-semibold">單人難度</h2>
+                        <span className="text-xs opacity-70">獨立於對戰</span>
+                      </div>
+                      <button
+                        onClick={() => startFresh()}
+                        className="px-3 py-2 rounded-full text-sm border bg-[var(--accent-strong)] text-white border-transparent"
+                      >
+                        重新開始
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {difficultiesList.map((d) => (
+                        <button
+                          key={d.key}
+                          onClick={() => handleSoloDifficulty(d.key)}
+                          className={`px-3 py-2 rounded-full text-sm border ${
+                            soloDifficulty === d.key
+                              ? "bg-[var(--accent)] text-white border-transparent"
+                              : "bg-[var(--surface-strong)] border-[var(--border)]"
+                          }`}
+                        >
+                          {d.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="bg-[var(--surface)] rounded-xl border border-[var(--border)] shadow p-4 space-y-3">
                     <div className="flex items-center justify-between">
                       <h2 className="text-lg font-semibold">送出成績</h2>
                       <span className="text-xs opacity-70">勝利後自動上榜（需登入）</span>
@@ -1124,6 +1288,28 @@ function App() {
                 <>
                   <div className="bg-[var(--surface)] rounded-xl border border-[var(--border)] shadow p-4 space-y-3">
                     <h2 className="text-lg font-semibold">對戰設定</h2>
+                    <div className="rounded border border-[var(--border)] bg-[var(--surface-strong)] px-3 py-2 text-sm">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="opacity-70">對戰難度（僅影響新對局）</span>
+                        <span className="text-xs opacity-70">獨立於單人</span>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {difficultiesList.map((d) => (
+                          <button
+                            key={d.key}
+                            onClick={() => handleVersusDifficulty(d.key)}
+                            disabled={!!vsMatch && vsState?.status !== "finished"}
+                            className={`px-3 py-1.5 rounded-full text-xs border ${
+                              versusDifficulty === d.key
+                                ? "bg-[var(--accent)] text-white border-transparent"
+                                : "bg-[var(--surface)] border-[var(--border)]"
+                            } disabled:opacity-60`}
+                          >
+                            {d.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                     <div className="rounded border border-[var(--border)] bg-[var(--surface-strong)] px-3 py-2 flex items-center justify-between text-sm">
                       <span className="opacity-70">對戰名稱</span>
                       <span className="font-semibold">{currentUser ? currentUser.handle : "請先登入"}</span>
@@ -1239,6 +1425,9 @@ function App() {
                             <div className="text-xs opacity-80">
                               {m.width}x{m.height} / {m.mines} 雷
                             </div>
+                            {m.status !== "finished" && m.players.length > 0 && m.players[0]?.ready && m.players[1]?.ready && (
+                              <div className="text-xs text-yellow-500">已同步起始點，雙方請踩指定開局格</div>
+                            )}
                             <div className="flex flex-wrap gap-2 mt-1">
                               {m.players.map((p, idx) => (
                                 <span
@@ -1263,7 +1452,16 @@ function App() {
           {mode === "versus" && vsMatch && vsState?.status === "finished" && (
             <section className="space-y-4">
               <div className="bg-[var(--surface)] rounded-xl border border-[var(--border)] shadow p-4 space-y-3">
-                <h2 className="text-lg font-semibold">對戰棋盤</h2>
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <h2 className="text-lg font-semibold">對戰棋盤回顧</h2>
+                  <div className="text-sm opacity-70 flex items-center gap-2">
+                    <span>選擇玩家並播放步驟</span>
+                    {replaySteps.length > 0 && (
+                      <span className="text-xs">步驟 {Math.min(replayIndex, replaySteps.length)} / {replaySteps.length}</span>
+                    )}
+                  </div>
+                </div>
+
                 <div className="flex flex-wrap gap-2">
                   {vsState.players.map((p) => (
                     <button
@@ -1284,14 +1482,50 @@ function App() {
                   const p = vsState.players.find((pl) => pl.id === selectedResultPlayerId) ?? vsState.players[0];
                   const snap = p ? getProgressBoard(p.progress ?? null) : null;
                   if (!p) return <p className="text-sm opacity-70">沒有棋盤紀錄</p>;
+
+                  const boardToShow = replayBoard ?? snap;
+
                   return (
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="font-semibold">{p.name}</span>
-                        <span className="text-sm opacity-80">{p.result ?? "完成"}</span>
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <div>
+                          <div className="font-semibold">{p.name}</div>
+                          <div className="text-sm opacity-80">{p.result ?? "完成"}</div>
+                        </div>
+                        <div className="flex items-center gap-2 text-sm">
+                          <button
+                            onClick={startReplayForSelected}
+                            disabled={replayLoading || !snap}
+                            className="px-3 py-1.5 rounded border border-[var(--border)] bg-[var(--surface-strong)] disabled:opacity-60"
+                          >
+                            {replayLoading ? "載入中..." : "播放此玩家步驟"}
+                          </button>
+                          <button
+                            onClick={() => setReplayPlaying((pState) => !pState)}
+                            disabled={replaySteps.length === 0}
+                            className="px-3 py-1.5 rounded border border-[var(--border)] bg-[var(--surface-strong)] disabled:opacity-60"
+                          >
+                            {replayPlaying ? "暫停" : "繼續"}
+                          </button>
+                          <button
+                            onClick={() => {
+                              setReplayIndex(0);
+                              setReplayBoard(buildReplayBoard());
+                              setReplayPlaying(false);
+                              setReplayError(null);
+                            }}
+                            disabled={replaySteps.length === 0}
+                            className="px-3 py-1.5 rounded border border-[var(--border)] bg-[var(--surface-strong)] disabled:opacity-60"
+                          >
+                            重設
+                          </button>
+                        </div>
                       </div>
-                      {snap ? (
-                        <Board board={snap} onReveal={() => {}} onFlag={() => {}} onChord={() => {}} />
+                      {replayError && <p className="text-sm text-red-600">{replayError}</p>}
+                      {boardToShow ? (
+                        <div className="max-w-full overflow-auto">
+                          <Board board={boardToShow} onReveal={() => {}} onFlag={() => {}} onChord={() => {}} maxWidth={900} />
+                        </div>
                       ) : (
                         <p className="text-sm opacity-70">沒有棋盤紀錄</p>
                       )}
