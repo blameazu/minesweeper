@@ -717,33 +717,10 @@ function App() {
 
   useEffect(() => {
     if (mode !== "versus") return;
-    let cancelled = false;
-    const run = async () => {
-      try {
-        setSubmitting(true);
-        setError(null);
-        await submitScore({
-          difficulty: board.difficulty,
-          timeMs: elapsedMs,
-          token,
-          replay: {
-            board: { width: board.width, height: board.height, mines: board.mines, seed: board.seed, safe_start: board.safeStart ?? null },
-            steps: soloReplaySteps,
-            duration_ms: elapsedMs
-          }
-        });
-        await loadLeaderboard(board.difficulty);
-        await refreshProfile();
-        if (!cancelled) setAutoSubmitted(true);
-      } catch (e) {
-        if (!cancelled) {
-          setError(e instanceof Error ? e.message : "提交失敗");
-          setAutoSubmitted(false);
-        }
-      } finally {
-        if (!cancelled) setSubmitting(false);
-      }
-    };
+    if (!vsMatch || !vsState) return;
+    if (vsState.status !== "finished") return;
+
+    if (!myPlayer) {
       setSelectedResultPlayerId(null);
       resetReplay();
       return;
@@ -752,21 +729,21 @@ function App() {
       setSelectedResultPlayerId(vsState.players[0].id);
     }
     if (vsProgressUploaded) return;
-    if (myPlayer?.progress) {
+    if (myPlayer.progress) {
       setVsProgressUploaded(true);
       return;
     }
 
     const snapshot = useGameStore.getState().board;
-    const outcome = myPlayer?.result ?? "draw";
+    const outcome = myPlayer.result ?? "draw";
     finishMatch(vsMatch.matchId, {
       playerToken: vsMatch.playerToken,
       outcome: outcome as "win" | "lose" | "draw" | "forfeit",
-      steps_count: myPlayer?.steps_count ?? vsStepCount,
-      duration_ms: myPlayer?.duration_ms ?? undefined,
+      steps_count: myPlayer.steps_count ?? vsStepCount,
+      duration_ms: myPlayer.duration_ms ?? undefined,
       progress: { board: snapshot }
     }).finally(() => setVsProgressUploaded(true));
-  }, [myPlayer, vsMatch, vsProgressUploaded, vsState, vsStepCount]);
+  }, [mode, myPlayer, selectedResultPlayerId, vsMatch, vsProgressUploaded, vsState, vsStepCount]);
 
   useEffect(() => {
     if (vsState?.status !== "finished") return;
