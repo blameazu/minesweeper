@@ -104,28 +104,44 @@ def _rank_counts(session: Session, user_id: int) -> dict:
 
 
 def _first_place_board(session: Session, current_user_id: int | None, limit: int = 20) -> RankBoard:
-    wins: dict[str, int] = {}
+    def _points_for(rank: int, total: int) -> int:
+        if total < 2:
+            return 0
+        if total == 2:
+            base = [10, 2]
+            return base[rank - 1] if rank <= 2 else 1
+        if total == 3:
+            base = [14, 7, 2]
+            return base[rank - 1] if rank <= 3 else 1
+        if total == 4:
+            base = [18, 10, 5, 2]
+            return base[rank - 1] if rank <= 4 else 1
+        value = round(25 * (1 - (rank - 1) / total) ** 1.1) + 1
+        return max(value, 1)
+
+    scores: dict[str, int] = {}
     matches = session.exec(select(Match).where(Match.status == MatchStatus.finished)).all()
     for match in matches:
         players = session.exec(select(MatchPlayer).where(MatchPlayer.match_id == match.id)).all()
         if not players:
             continue
         standings = _compute_standings(match, players)
-        if not standings:
+        total = len(standings)
+        if total == 0:
             continue
-        rank1_players = [p for r, p in standings if r == 1]
-        for p in rank1_players:
-            wins[p.name] = wins.get(p.name, 0) + 1
+        for rank, p in standings:
+            pts = _points_for(rank, total)
+            scores[p.name] = scores.get(p.name, 0) + pts
 
-    top_sorted = sorted(wins.items(), key=lambda x: (-x[1], x[0]))
-    top_entries = [RankEntry(handle=h, first=c) for h, c in top_sorted[:limit]]
+    top_sorted = sorted(scores.items(), key=lambda x: (-x[1], x[0]))
+    top_entries = [RankEntry(handle=h, score=c) for h, c in top_sorted[:limit]]
 
     me_entry = None
     if current_user_id is not None:
         me_players = session.exec(select(MatchPlayer).where(MatchPlayer.user_id == current_user_id)).all()
         if me_players:
             handle = me_players[0].name
-            me_entry = RankEntry(handle=handle, first=wins.get(handle, 0))
+            me_entry = RankEntry(handle=handle, score=scores.get(handle, 0))
 
     return RankBoard(top=top_entries, me=me_entry)
 

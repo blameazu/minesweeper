@@ -2191,7 +2191,7 @@ function App() {
         <section className="space-y-4">
           <div className="bg-[var(--surface)] rounded-xl border border-[var(--border)] shadow p-4 space-y-3">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold">Rank (依 #1 勝場數)</h2>
+              <h2 className="text-lg font-semibold">Rank (積分制)</h2>
               <span className="text-xs opacity-70">前 20 名</span>
             </div>
             {loadingRank ? (
@@ -2209,7 +2209,7 @@ function App() {
                       <span className="font-mono text-xs w-6">#{idx + 1}</span>
                       <span className="font-semibold">{r.handle}</span>
                     </div>
-                    <span className="font-mono">{r.first}</span>
+                    <span className="font-mono">{r.score}</span>
                   </li>
                 ))}
               </ol>
@@ -2219,8 +2219,8 @@ function App() {
 
             {rankBoard?.me && (
               <div className="mt-3 rounded border border-[var(--border)] bg-[var(--surface-strong)] px-3 py-2 text-sm flex items-center justify-between">
-                <span className="opacity-70">你的 #1 勝場</span>
-                <span className="font-semibold">{rankBoard.me.first}</span>
+                <span className="opacity-70">你的積分</span>
+                <span className="font-semibold">{rankBoard.me.score}</span>
               </div>
             )}
           </div>

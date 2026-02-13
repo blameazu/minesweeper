@@ -208,7 +208,7 @@ class ProfileResponse(BaseModel):
 
 class RankEntry(BaseModel):
     handle: str
-    first: int
+    score: int
 
 
 class RankBoard(BaseModel):

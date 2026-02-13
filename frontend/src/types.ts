@@ -140,7 +140,7 @@ export interface ActiveMatchResponse {
 
 export interface RankEntry {
   handle: string;
-  first: number;
+  score: number;
 }
 
 export interface RankBoard {
