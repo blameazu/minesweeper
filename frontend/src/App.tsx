@@ -985,15 +985,23 @@ function App() {
     }
     try {
       const steps = await fetchMatchSteps(vsMatch.matchId);
-      const ordered = steps.sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
+      const ordered = steps
+        .filter((s) => s.player_name === player.name)
+        .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
+
+      if (ordered.length === 0) {
+        setReplayBoard(null);
+        setReplaySteps([]);
+        setReplayIndex(0);
+        setReplayPlaying(false);
+        setReplayError("沒有找到此玩家的步驟");
+        return;
+      }
+
       setReplayBoard(baseBoard);
       setReplaySteps(ordered);
       setReplayIndex(0);
-      setReplayPlaying(ordered.length > 0);
-      if (ordered.length === 0) {
-        setReplayError("沒有找到任何步驟");
-        setReplayPlaying(false);
-      }
+      setReplayPlaying(true);
     } catch (e) {
       setReplayError(e instanceof Error ? e.message : "載入步驟失敗");
     } finally {
