@@ -63,6 +63,7 @@ class MatchState(BaseModel):
     ended_at: Optional[datetime]
     countdown_secs: int
     safe_start: dict
+    host_id: Optional[int]
     players: list[MatchStatePlayer]
 
 
@@ -72,6 +73,7 @@ class MatchCreateResponse(BaseModel):
     player_id: int
     player_token: str
     board: dict
+    host_id: Optional[int] = None
 
 
 class MatchJoinResponse(BaseModel):
@@ -79,6 +81,7 @@ class MatchJoinResponse(BaseModel):
     player_id: int
     player_token: str
     board: dict
+    host_id: Optional[int] = None
 
 
 class MatchStepCreate(BaseModel):

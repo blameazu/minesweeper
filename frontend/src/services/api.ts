@@ -89,7 +89,8 @@ export const createMatch = async (params: {
     playerToken: data.player_token,
     board: { ...(data.board as MatchBoard), safeStart: data.board?.safe_start ?? data.board?.safeStart ?? null },
     status: "pending",
-    countdown_secs: data.countdown_secs ?? 300
+    countdown_secs: data.countdown_secs ?? 300,
+    hostId: data.host_id ?? null
   };
 };
 
@@ -106,7 +107,8 @@ export const joinMatch = async (matchId: number, params: { token: string }): Pro
     playerId: data.player_id,
     playerToken: data.player_token,
     board: { ...(data.board as MatchBoard), safeStart: data.board?.safe_start ?? data.board?.safeStart ?? null },
-    status: "active"
+    status: data.status ?? "pending",
+    hostId: data.host_id ?? null
   };
 };
 
@@ -167,6 +169,16 @@ export const setReady = async (matchId: number, params: { playerToken: string; r
     })
   });
   if (!res.ok) throw new Error(`設定準備失敗 (${res.status})`);
+  return res.json();
+};
+
+export const startMatch = async (matchId: number, params: { playerToken: string }) => {
+  const res = await fetch(`${API_BASE}/api/match/${matchId}/start`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...NGROK_HEADER },
+    body: JSON.stringify({ player_token: params.playerToken, ready: true })
+  });
+  if (!res.ok) throw new Error(`開始對局失敗 (${res.status})`);
   return res.json();
 };
 

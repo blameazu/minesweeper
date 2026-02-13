@@ -24,6 +24,7 @@ import {
   joinMatch,
   leaveMatch,
   setReady,
+  startMatch,
   sendMatchStep,
   submitScore,
   login,
@@ -184,6 +185,7 @@ function App() {
                   ...m,
                   status: state.status as MatchSession["status"],
                   board: { width: state.width, height: state.height, mines: state.mines, seed: state.seed, safeStart: state.safe_start ?? null },
+                  hostId: state.host_id ?? m.hostId ?? null,
                 }
               : m
           );
@@ -334,6 +336,11 @@ function App() {
     return vsState.players.find((p) => p.id === vsMatch.playerId) ?? null;
   }, [vsMatch, vsState]);
 
+  const isHost = useMemo(() => {
+    const hostId = vsState?.host_id ?? vsMatch?.hostId ?? null;
+    return !!hostId && myPlayer?.id === hostId;
+  }, [myPlayer?.id, vsMatch?.hostId, vsState?.host_id]);
+
   const opponent = useMemo(() => {
     if (!vsState || !vsMatch) return null;
     return vsState.players.find((p) => p.id !== vsMatch.playerId) ?? null;
@@ -446,7 +453,8 @@ function App() {
                   mines: state.mines,
                   seed: state.seed,
                   safeStart: state.safe_start ?? m.board.safeStart ?? null
-                }
+                },
+                hostId: state.host_id ?? m.hostId ?? null
               }
             : m
         );
@@ -837,7 +845,8 @@ function App() {
         playerId: -1,
         playerToken: "",
         board: { width: state.width, height: state.height, mines: state.mines, seed: state.seed, safeStart: state.safe_start ?? null },
-        status: state.status
+        status: state.status,
+        hostId: state.host_id ?? null
       };
       setVsMatch(session);
       setVsState(state);
@@ -865,12 +874,63 @@ function App() {
       setVsError("尚未加入對局");
       return;
     }
+    if (isHost) {
+      setVsError("房主無需準備，可直接開始");
+      return;
+    }
+    const nextReady = !myPlayer?.ready;
     try {
       setVsError(null);
-      setVsInfo("等待對手準備...");
-      await setReady(vsMatch.matchId, { playerToken: vsMatch.playerToken, ready: true });
+      setVsInfo(nextReady ? "等待對手準備..." : "已取消準備");
+      await setReady(vsMatch.matchId, { playerToken: vsMatch.playerToken, ready: nextReady });
     } catch (e) {
       setVsError(e instanceof Error ? e.message : "設定準備失敗");
+    }
+  };
+
+  const handleStartMatch = async () => {
+    if (isSpectator) {
+      setVsError("觀戰模式無法開始");
+      return;
+    }
+    if (!vsMatch || !vsState) {
+      setVsError("尚未加入對局");
+      return;
+    }
+    const hostId = vsState.host_id ?? vsMatch.hostId ?? null;
+    if (!myPlayer || hostId !== myPlayer.id) {
+      setVsError("只有房主可以開始");
+      return;
+    }
+    if (vsState.status !== "pending") {
+      setVsError("對局已開始或已結束");
+      return;
+    }
+    if ((vsState.players?.length ?? 0) < 2) {
+      setVsError("至少需要 2 名玩家才能開始");
+      return;
+    }
+    const others = (vsState.players ?? []).filter((p) => p.id !== myPlayer.id);
+    if (!others.every((p) => p.ready)) {
+      setVsError("需等其他玩家都準備");
+      return;
+    }
+    try {
+      setVsError(null);
+      setVsInfo("即將開始，請準備...");
+      const res = await startMatch(vsMatch.matchId, { playerToken: vsMatch.playerToken });
+      setVsState((prev) =>
+        prev
+          ? {
+              ...prev,
+              status: res.status ?? prev.status,
+              started_at: res.started_at ?? prev.started_at,
+              countdown_secs: res.countdown_secs ?? prev.countdown_secs
+            }
+          : prev
+      );
+    } catch (e) {
+      setVsError(e instanceof Error ? e.message : "開始對局失敗");
     }
   };
 
@@ -1590,9 +1650,14 @@ function App() {
                         <div className="space-y-1">
                           {(vsState?.players ?? []).map((p) => (
                             <div key={p.id} className="flex items-center justify-between text-sm">
-                              <span>{p.name}</span>
+                              <span>
+                                {p.name}
+                                {vsState?.host_id === p.id ? " (房主)" : ""}
+                              </span>
                               <span className="opacity-70 flex items-center gap-2">
-                                <span>{p.ready ? "已準備" : "未準備"}</span>
+                                <span>
+                                  {vsState?.host_id === p.id ? "-" : p.ready ? "已準備" : "未準備"}
+                                </span>
                                 <span>{renderResult(p.result, vsState?.status)}</span>
                               </span>
                             </div>
@@ -1600,11 +1665,31 @@ function App() {
                         </div>
                         <button
                           onClick={handleSetReady}
-                          disabled={myPlayer?.ready || vsState?.status === "active" || vsState?.status === "finished"}
+                          disabled={isHost || vsState?.status === "active" || vsState?.status === "finished"}
                           className="w-full rounded bg-[var(--accent-strong)] text-white py-2 disabled:opacity-60"
                         >
-                          {myPlayer?.ready ? "已準備" : "我已準備"}
+                          {isHost ? "房主無需準備" : myPlayer?.ready ? "取消準備" : "我已準備"}
                         </button>
+                        {isHost && vsState?.status === "pending" && (
+                          <button
+                            onClick={handleStartMatch}
+                            disabled={(() => {
+                              const countOk = (vsState?.players?.length ?? 0) >= 2;
+                              if (!countOk) return true;
+                              const others = (vsState?.players ?? []).filter((p) => p.id !== myPlayer?.id);
+                              return !others.every((p) => p.ready);
+                            })()}
+                            className="w-full rounded bg-[var(--surface-strong)] border border-[var(--border)] py-2 disabled:opacity-60"
+                          >
+                            {(() => {
+                              const playerCount = vsState?.players?.length ?? 0;
+                              if (playerCount < 2) return "等待至少 2 名玩家";
+                              const others = (vsState?.players ?? []).filter((p) => p.id !== myPlayer?.id);
+                              if (!others.every((p) => p.ready)) return "等待其他玩家準備";
+                              return "開始對局 (房主)";
+                            })()}
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>

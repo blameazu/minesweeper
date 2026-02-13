@@ -58,13 +58,40 @@ def _get_player_by_token(session: Session, token: str) -> Optional[MatchPlayer]:
     return session.exec(stmt).first()
 
 
+def _progress_stats(progress: Optional[dict]) -> tuple[int, bool]:
+    """Return (revealed_count, hit_mine) from a client-provided progress snapshot."""
+    if not progress or not isinstance(progress, dict):
+        return 0, False
+    board = progress.get("board") if isinstance(progress.get("board"), dict) else None
+    if not board:
+        return 0, False
+    cells = board.get("cells") if isinstance(board.get("cells"), list) else []
+    revealed = 0
+    hit_mine = False
+    for cell in cells:
+        if not isinstance(cell, dict):
+            continue
+        if cell.get("revealed"):
+            revealed += 1
+            if cell.get("isMine"):
+                hit_mine = True
+    return revealed, hit_mine
+
+
 def _ensure_joinable(session: Session, match: Match) -> None:
     if match.status not in {MatchStatus.pending, MatchStatus.active}:
         raise HTTPException(status_code=400, detail="match already finished")
     stmt = select(MatchPlayer).where(MatchPlayer.match_id == match.id)
     players = session.exec(stmt).all()
-    if len(players) >= 2:
-        raise HTTPException(status_code=400, detail="match already has two players")
+    # allow multiple players; optionally cap here if desired
+
+
+def _select_host(players: list[MatchPlayer]) -> Optional[int]:
+    if not players:
+        return None
+    # host = earliest joined player; stable even after leaves
+    players_sorted = sorted(players, key=lambda p: (p.created_at, p.id))
+    return players_sorted[0].id
 
 
 def _list_players(session: Session, match: Match) -> list[MatchPlayer]:
@@ -158,6 +185,7 @@ async def create_match(payload: MatchCreate, session: Session = Depends(get_sess
         player_id=player.id,
         player_token=token,
         board={"width": match.width, "height": match.height, "mines": match.mines, "seed": match.seed, "safe_start": _safe_start(match)},
+        host_id=player.id,
     )
 
 
@@ -187,6 +215,7 @@ async def join_match(match_id: int, payload: MatchJoin, session: Session = Depen
         player_id=player.id,
         player_token=token,
         board={"width": match.width, "height": match.height, "mines": match.mines, "seed": match.seed, "safe_start": _safe_start(match)},
+        host_id=_select_host(_list_players(session, match)),
     )
 
 
@@ -200,14 +229,35 @@ async def set_ready(match_id: int, payload: MatchReady, session: Session = Depen
         raise HTTPException(status_code=400, detail="match finished")
 
     player.ready = payload.ready
+    session.commit()
+    session.refresh(match)
+    return {"ok": True, "status": match.status.value, "started_at": match.started_at, "countdown_secs": match.countdown_secs}
+
+
+@router.post("/{match_id}/start")
+async def start_match(match_id: int, payload: MatchReady, session: Session = Depends(get_session)):
+    match = _get_match(session, match_id)
+    player = _get_player_by_token(session, payload.player_token)
+    if not player or player.match_id != match.id:
+        raise HTTPException(status_code=403, detail="invalid player token")
+
     players = _list_players(session, match)
-    if len(players) == 2 and all(p.ready for p in players) and match.status != MatchStatus.finished:
-        match.status = MatchStatus.active
-        start_delay = 10
-        now = datetime.utcnow()
-        match.started_at = match.started_at or now + timedelta(seconds=start_delay)
-        if not match.countdown_secs:
-            match.countdown_secs = _default_countdown(match.difficulty)
+    host_id = _select_host(players)
+    if host_id != player.id:
+        raise HTTPException(status_code=403, detail="only host can start")
+
+    if match.status != MatchStatus.pending:
+        raise HTTPException(status_code=400, detail="match already started or finished")
+
+    if len(players) < 2:
+        raise HTTPException(status_code=400, detail="need at least two players to start")
+
+    now = datetime.utcnow()
+    start_delay = 10
+    match.status = MatchStatus.active
+    match.started_at = match.started_at or now + timedelta(seconds=start_delay)
+    if not match.countdown_secs:
+        match.countdown_secs = _default_countdown(match.difficulty)
 
     session.commit()
     session.refresh(match)
@@ -232,6 +282,7 @@ async def get_match_state(match_id: int, session: Session = Depends(get_session)
         ended_at=match.ended_at,
         countdown_secs=countdown_secs,
         safe_start=_safe_start(match),
+        host_id=_select_host(players),
         players=[_player_to_schema(p) for p in players],
     )
 
@@ -274,13 +325,15 @@ async def finish_match(match_id: int, payload: MatchFinish, session: Session = D
         raise HTTPException(status_code=403, detail="invalid player token")
 
     players = _apply_timeout(session, match)
-    if player.result:
+    # If already finished, just persist missing progress and return.
+    if match.status == MatchStatus.finished:
         if payload.progress is not None and player.progress is None:
             player.progress = json.dumps(payload.progress)
             session.commit()
         return {"ok": True}
 
-    # Determine if the player actually completed the entire board (used to gate "win").
+    now = datetime.utcnow()
+
     completed_board = False
     if payload.progress is not None:
         try:
@@ -290,41 +343,37 @@ async def finish_match(match_id: int, payload: MatchFinish, session: Session = D
         except Exception:
             completed_board = False
 
-    now = datetime.utcnow()
     actual_outcome = payload.outcome
     if payload.outcome == "win" and not completed_board:
         actual_outcome = "forfeit"
 
-    player.result = actual_outcome
-    player.duration_ms = payload.duration_ms
-    player.steps_count = payload.steps_count or player.steps_count
-    player.finished_at = now
     if payload.progress is not None:
         player.progress = json.dumps(payload.progress)
 
-    # Determine match status/outcomes
-    players = _list_players(session, match)
-    other_players = [p for p in players if p.id != player.id]
+    # If player already had a result, do not overwrite outcomes—only persist progress.
+    if not player.result:
+        player.result = actual_outcome
+        player.duration_ms = payload.duration_ms
+        player.steps_count = payload.steps_count or player.steps_count
+        player.finished_at = now
 
-    if actual_outcome == "win":
-        match.status = MatchStatus.finished
-        match.ended_at = now
+    # If someone truly completed the board, end immediately: they win, others lose if unset.
+    if completed_board and actual_outcome == "win":
+        other_players = [p for p in players if p.id != player.id]
         for op in other_players:
             if not op.result:
                 op.result = "lose"
                 op.finished_at = now
-    elif actual_outcome == "lose":
         match.status = MatchStatus.finished
         match.ended_at = now
-        for op in other_players:
-            if not op.result:
-                op.result = "win"
-                op.finished_at = now
-    else:
-        # for draw/forfeit: finish only when all players have a result
-        if all(p.result for p in players):
-            match.status = MatchStatus.finished
-            match.ended_at = now
+        session.commit()
+        return {"ok": True}
+
+    # Otherwise (lose/forfeit/draw), keep match open until someone wins or everyone has reported.
+    all_reported = all(p.result for p in players)
+    if all_reported:
+        match.status = MatchStatus.finished
+        match.ended_at = now
 
     session.commit()
     return {"ok": True}
@@ -383,7 +432,7 @@ async def leave_match(match_id: int, payload: MatchDelete, session: Session = De
     match.ended_at = None
     session.commit()
     session.refresh(match)
-    return {"ok": True, "left": True, "players": [p.id for p in remaining]}
+    return {"ok": True, "left": True, "players": [p.id for p in remaining], "host_id": _select_host(remaining)}
 
 
 @router.get("/{match_id}/steps", response_model=list[MatchStepRead])

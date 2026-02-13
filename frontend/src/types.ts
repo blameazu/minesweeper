@@ -76,6 +76,7 @@ export interface MatchState {
   ended_at?: string | null;
   countdown_secs: number;
   safe_start?: { x: number; y: number } | null;
+  host_id?: number | null;
   players: MatchStatePlayer[];
 }
 
@@ -96,6 +97,7 @@ export interface MatchSession {
   board: MatchBoard;
   status: string;
   countdown_secs?: number;
+  hostId?: number | null;
 }
 
 export interface RecentMatchPlayer {
