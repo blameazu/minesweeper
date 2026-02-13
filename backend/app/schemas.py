@@ -62,6 +62,7 @@ class MatchState(BaseModel):
     started_at: Optional[datetime]
     ended_at: Optional[datetime]
     countdown_secs: int
+    safe_start: dict
     players: list[MatchStatePlayer]
 
 

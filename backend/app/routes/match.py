@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import hashlib
 import json
 import secrets
 from typing import Optional
@@ -26,6 +27,23 @@ from ..schemas import (
 from .auth import get_current_user
 
 router = APIRouter(prefix="/api/match", tags=["match"])
+
+
+def _default_countdown(difficulty: Optional[str]) -> int:
+    mapping = {
+        "beginner": 5 * 60,
+        "intermediate": 10 * 60,
+        "expert": 20 * 60,
+    }
+    return mapping.get(difficulty or "", 5 * 60)
+
+
+def _safe_start(match: Match) -> dict[str, int]:
+    """Derive a deterministic safe starting cell based on the match seed."""
+    digest = hashlib.sha256(match.seed.encode("utf-8")).digest()
+    x = int.from_bytes(digest[:4], "big") % match.width
+    y = int.from_bytes(digest[4:8], "big") % match.height
+    return {"x": x, "y": y}
 
 
 def _get_match(session: Session, match_id: int) -> Match:
@@ -78,7 +96,7 @@ def _apply_timeout(session: Session, match: Match) -> list[MatchPlayer]:
     if match.status == MatchStatus.finished or not match.started_at:
         return players
 
-    countdown_secs = match.countdown_secs or 300
+    countdown_secs = match.countdown_secs or _default_countdown(match.difficulty)
     deadline = match.started_at + timedelta(seconds=countdown_secs)
     now = datetime.utcnow()
     if now < deadline:
@@ -106,13 +124,14 @@ def _apply_timeout(session: Session, match: Match) -> list[MatchPlayer]:
 async def create_match(payload: MatchCreate, session: Session = Depends(get_session), user=Depends(get_current_user)):
     if not user:
         raise HTTPException(status_code=401, detail="login required")
+    countdown_secs = payload.countdown_secs if payload.countdown_secs is not None else _default_countdown(payload.difficulty)
     match = Match(
         width=payload.width,
         height=payload.height,
         mines=payload.mines,
         seed=payload.seed or secrets.token_hex(8),
         difficulty=payload.difficulty,
-        countdown_secs=payload.countdown_secs if payload.countdown_secs is not None else 300,
+        countdown_secs=countdown_secs,
     )
     session.add(match)
     session.commit()
@@ -129,7 +148,7 @@ async def create_match(payload: MatchCreate, session: Session = Depends(get_sess
         match_id=match.id,
         player_id=player.id,
         player_token=token,
-        board={"width": match.width, "height": match.height, "mines": match.mines, "seed": match.seed},
+        board={"width": match.width, "height": match.height, "mines": match.mines, "seed": match.seed, "safe_start": _safe_start(match)},
     )
 
 
@@ -158,7 +177,7 @@ async def join_match(match_id: int, payload: MatchJoin, session: Session = Depen
         match_id=match.id,
         player_id=player.id,
         player_token=token,
-        board={"width": match.width, "height": match.height, "mines": match.mines, "seed": match.seed},
+        board={"width": match.width, "height": match.height, "mines": match.mines, "seed": match.seed, "safe_start": _safe_start(match)},
     )
 
 
@@ -179,7 +198,7 @@ async def set_ready(match_id: int, payload: MatchReady, session: Session = Depen
         now = datetime.utcnow()
         match.started_at = match.started_at or now + timedelta(seconds=start_delay)
         if not match.countdown_secs:
-            match.countdown_secs = 300
+            match.countdown_secs = _default_countdown(match.difficulty)
 
     session.commit()
     session.refresh(match)
@@ -190,7 +209,7 @@ async def set_ready(match_id: int, payload: MatchReady, session: Session = Depen
 async def get_match_state(match_id: int, session: Session = Depends(get_session)):
     match = _get_match(session, match_id)
     players = _apply_timeout(session, match)
-    countdown_secs = match.countdown_secs or 300
+    countdown_secs = match.countdown_secs or _default_countdown(match.difficulty)
     return MatchState(
         id=match.id,
         status=match.status.value,
@@ -203,6 +222,7 @@ async def get_match_state(match_id: int, session: Session = Depends(get_session)
         started_at=match.started_at,
         ended_at=match.ended_at,
         countdown_secs=countdown_secs,
+        safe_start=_safe_start(match),
         players=[_player_to_schema(p) for p in players],
     )
 

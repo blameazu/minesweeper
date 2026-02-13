@@ -77,7 +77,7 @@ export const createMatch = async (params: {
     matchId: data.match_id,
     playerId: data.player_id,
     playerToken: data.player_token,
-    board: data.board as MatchBoard,
+    board: { ...(data.board as MatchBoard), safeStart: data.board?.safe_start ?? data.board?.safeStart ?? null },
     status: "pending",
     countdown_secs: data.countdown_secs ?? 300
   };
@@ -95,7 +95,7 @@ export const joinMatch = async (matchId: number, params: { token: string }): Pro
     matchId: data.match_id,
     playerId: data.player_id,
     playerToken: data.player_token,
-    board: data.board as MatchBoard,
+    board: { ...(data.board as MatchBoard), safeStart: data.board?.safe_start ?? data.board?.safeStart ?? null },
     status: "active"
   };
 };

@@ -27,6 +27,7 @@ export interface BoardState {
   status: "idle" | "playing" | "won" | "lost";
   seed: string;
   difficulty: DifficultyKey;
+  safeStart?: { x: number; y: number } | null;
 }
 
 export interface LeaderboardEntry {
@@ -42,6 +43,8 @@ export interface MatchBoard {
   height: number;
   mines: number;
   seed: string;
+  safe_start?: { x: number; y: number } | null;
+  safeStart?: { x: number; y: number } | null;
   difficulty?: string | null;
 }
 
@@ -72,6 +75,7 @@ export interface MatchState {
   started_at?: string | null;
   ended_at?: string | null;
   countdown_secs: number;
+  safe_start?: { x: number; y: number } | null;
   players: MatchStatePlayer[];
 }
 

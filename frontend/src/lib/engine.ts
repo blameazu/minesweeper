@@ -100,10 +100,12 @@ export const createBoard = (
 
 export const startBoard = (
   board: ReturnType<typeof createBoard>,
-  firstClick: { x: number; y: number }
+  firstClick: { x: number; y: number },
+  safe?: { x: number; y: number }
 ) => {
   const { width, height, mines, seed } = board;
-  const mineSet = placeMines(width, height, mines, seed, firstClick);
+  const safeSpot = safe ?? firstClick;
+  const mineSet = placeMines(width, height, mines, seed, safeSpot);
   const cells = board.cells.map((cell, idx) => ({ ...cell, isMine: mineSet.has(idx) }));
 
   for (const cell of cells) {
@@ -128,7 +130,8 @@ export const reveal = (state: BoardState, x: number, y: number): BoardState => {
   // If mines haven't been placed yet, populate on first reveal (even if timer already started by versus pre-start)
   const needsPopulate = !state.cells.some((c) => c.isMine);
   if (needsPopulate) {
-    const newBoard = startBoard({ width: state.width, height: state.height, mines: state.mines, seed: state.seed, cells: state.cells }, { x, y });
+    const safeSpot = state.safeStart ?? { x, y };
+    const newBoard = startBoard({ width: state.width, height: state.height, mines: state.mines, seed: state.seed, cells: state.cells }, { x, y }, safeSpot);
     cells = newBoard.cells;
     startedAt = state.startedAt ?? Date.now();
   }
@@ -204,7 +207,7 @@ export const remainingMines = (state: BoardState) => {
 
 export const createEmptyState = (
   difficulty: DifficultyKey,
-  opts?: { width?: number; height?: number; mines?: number; seed?: string }
+  opts?: { width?: number; height?: number; mines?: number; seed?: string; safeStart?: { x: number; y: number } | null }
 ) => {
   const board = createBoard(difficulty, opts);
   const state: BoardState = {
@@ -216,7 +219,8 @@ export const createEmptyState = (
     startedAt: null,
     endedAt: null,
     status: "idle",
-    difficulty
+    difficulty,
+    safeStart: opts?.safeStart ?? null
   };
   return state;
 };

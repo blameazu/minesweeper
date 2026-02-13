@@ -104,7 +104,7 @@ function App() {
         matchId: parsed.matchId,
         playerId: parsed.playerId,
         playerToken: parsed.playerToken,
-        board: { width: board.width, height: board.height, mines: board.mines, seed: board.seed },
+        board: { width: board.width, height: board.height, mines: board.mines, seed: board.seed, safeStart: board.safeStart ?? null },
         status: "pending"
       });
       setVsProgressUploaded(false);
@@ -113,14 +113,21 @@ function App() {
 
       fetchMatchState(parsed.matchId)
         .then((state) => {
-          applyBoardConfig({ width: state.width, height: state.height, mines: state.mines, seed: state.seed, difficulty: state.difficulty as DifficultyKey | null });
+          applyBoardConfig({
+            width: state.width,
+            height: state.height,
+            mines: state.mines,
+            seed: state.seed,
+            difficulty: state.difficulty as DifficultyKey | null,
+            safe_start: state.safe_start ?? null
+          });
           setVsState(state);
           setVsMatch((m) =>
             m
               ? {
                   ...m,
                   status: state.status as MatchSession["status"],
-                  board: { width: state.width, height: state.height, mines: state.mines, seed: state.seed },
+                  board: { width: state.width, height: state.height, mines: state.mines, seed: state.seed, safeStart: state.safe_start ?? null },
                 }
               : m
           );
@@ -275,9 +282,28 @@ function App() {
     }
   };
 
+  const refreshProfile = async () => {
+    if (!isAuthenticated || !token) return;
+    try {
+      setLoadingProfile(true);
+      setProfileError(null);
+      const data = await fetchProfile(token);
+      setProfile(data);
+    } catch (e) {
+      setProfileError(e instanceof Error ? e.message : "讀取個人資料失敗");
+    } finally {
+      setLoadingProfile(false);
+    }
+  };
+
   useEffect(() => {
     loadLeaderboard(board.difficulty);
   }, [board.difficulty]);
+
+  useEffect(() => {
+    if (view !== "profile") return;
+    refreshProfile();
+  }, [view]);
 
   // Persist versus session so browser refresh can resume.
   useEffect(() => {
@@ -300,7 +326,21 @@ function App() {
         if (cancelled) return;
         setVsError(null);
         setVsState(state);
-        setVsMatch((m) => (m ? { ...m, status: state.status } : m));
+        setVsMatch((m) =>
+          m
+            ? {
+                ...m,
+                status: state.status,
+                board: {
+                  width: state.width,
+                  height: state.height,
+                  mines: state.mines,
+                  seed: state.seed,
+                  safeStart: state.safe_start ?? m.board.safeStart ?? null
+                }
+              }
+            : m
+        );
       } catch (err) {
         if (!cancelled) {
           setVsError(err instanceof Error ? err.message : "對局狀態讀取失敗");
@@ -373,6 +413,17 @@ function App() {
   }, [myPlayer, vsMatch, vsProgressUploaded, vsState, vsStepCount]);
 
   useEffect(() => {
+    if (vsState?.status !== "finished") return;
+    refreshProfile();
+    fetchRecentMatches()
+      .then((data) => {
+        setRecentMatches(data);
+        setRecentError(null);
+      })
+      .catch((e) => setRecentError(e instanceof Error ? e.message : "讀取最近對戰失敗"));
+  }, [vsState?.status]);
+
+  useEffect(() => {
     if (mode !== "versus") return;
     if (!vsState || vsState.status !== "finished") return;
     if (!myPlayer) return;
@@ -405,6 +456,7 @@ function App() {
       setError(null);
       await submitScore({ difficulty: board.difficulty, timeMs: elapsedMs, token });
       await loadLeaderboard(board.difficulty);
+      await refreshProfile();
       setAutoSubmitted(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "提交失敗");
@@ -425,6 +477,7 @@ function App() {
         setError(null);
         await submitScore({ difficulty: board.difficulty, timeMs: elapsedMs, token });
         await loadLeaderboard(board.difficulty);
+        await refreshProfile();
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "提交失敗");
       } finally {
@@ -437,9 +490,18 @@ function App() {
     };
   }, [autoSubmitted, board.difficulty, board.endedAt, board.startedAt, board.status, elapsedMs, isAuthenticated, token, currentUser, submitting]);
 
-  const applyBoardConfig = (config: { width: number; height: number; mines: number; seed: string; difficulty?: DifficultyKey | null }) => {
+  const applyBoardConfig = (config: {
+    width: number;
+    height: number;
+    mines: number;
+    seed: string;
+    difficulty?: DifficultyKey | null;
+    safe_start?: { x: number; y: number } | null;
+    safeStart?: { x: number; y: number } | null;
+  }) => {
     const diff = config.difficulty ?? board.difficulty;
-    setDifficulty(diff, { width: config.width, height: config.height, mines: config.mines, seed: config.seed });
+    const safeStart = config.safe_start ?? config.safeStart ?? board.safeStart ?? null;
+    setDifficulty(diff, { width: config.width, height: config.height, mines: config.mines, seed: config.seed, safeStart });
   };
 
   const getProgressBoard = (progress?: MatchProgress | null): BoardState | null => {
@@ -593,7 +655,7 @@ function App() {
         matchId: idNum,
         playerId: -1,
         playerToken: "",
-        board: { width: state.width, height: state.height, mines: state.mines, seed: state.seed },
+        board: { width: state.width, height: state.height, mines: state.mines, seed: state.seed, safeStart: state.safe_start ?? null },
         status: state.status
       };
       setVsMatch(session);
@@ -666,6 +728,14 @@ function App() {
           steps_count: vsStepCount,
           progress: { board: current }
         });
+        await refreshProfile();
+        try {
+          const recent = await fetchRecentMatches();
+          setRecentMatches(recent);
+          setRecentError(null);
+        } catch (e) {
+          setRecentError(e instanceof Error ? e.message : "讀取最近對戰失敗");
+        }
         setVsMatch({ ...vsMatch, status: "finished" });
         setVsInfo(current.status === "won" ? "你完成了！" : "你踩雷了");
       } catch (e) {
