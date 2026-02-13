@@ -46,6 +46,15 @@ const formatCountdown = (secs: number | null | undefined) => {
 };
 
 const VS_SESSION_KEY = "vs_session";
+const UI_THEME_KEY = "ui_theme";
+const UI_VIEW_KEY = "ui_view";
+const UI_MODE_KEY = "ui_mode";
+
+const readStored = <T extends string>(key: string, fallback: T, allowed: readonly T[]): T => {
+  if (typeof window === "undefined") return fallback;
+  const val = localStorage.getItem(key) as T | null;
+  return val && allowed.includes(val) ? val : fallback;
+};
 
 const parseUtcMillis = (ts?: string | null) => {
   if (!ts) return null;
@@ -71,8 +80,10 @@ const applyReplayStep = (state: BoardState, step: MatchStep): BoardState => {
 
 function App() {
   const { board, setDifficulty, startFresh, revealCell, toggleFlag, chordCell } = useGameStore();
-  const [mode, setMode] = useState<"solo" | "versus">("solo");
-  const [view, setView] = useState<"solo" | "versus" | "profile">("solo");
+  const [mode, setMode] = useState<"solo" | "versus">(() => readStored(UI_MODE_KEY, "solo", ["solo", "versus"]));
+  const [view, setView] = useState<"solo" | "versus" | "profile">(() =>
+    readStored(UI_VIEW_KEY, "solo", ["solo", "versus", "profile"])
+  );
   const [now, setNow] = useState(Date.now());
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
   const [authHandle, setAuthHandle] = useState("");
@@ -87,7 +98,7 @@ function App() {
   const [loadingLb, setLoadingLb] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [theme, setTheme] = useState<"light" | "dark">(() => readStored(UI_THEME_KEY, "light", ["light", "dark"]));
   const [vsName, setVsName] = useState("");
   const [vsMatch, setVsMatch] = useState<MatchSession | null>(null);
   const [vsState, setVsState] = useState<MatchState | null>(null);
@@ -196,7 +207,17 @@ function App() {
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
+    if (typeof window !== "undefined") {
+      localStorage.setItem(UI_THEME_KEY, theme);
+    }
   }, [theme]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem(UI_VIEW_KEY, view);
+      localStorage.setItem(UI_MODE_KEY, mode);
+    }
+  }, [view, mode]);
 
   useEffect(() => {
     if (mode === "solo") {
