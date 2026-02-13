@@ -730,6 +730,7 @@ function App() {
         difficulty: board.difficulty,
         token: token as string
       });
+      setIsSpectator(false);
       setVsMatch({ ...session, status: "pending" });
       setVsName(displayName);
       setVsState(null);
@@ -737,6 +738,10 @@ function App() {
       setVsStepCount(0);
       setVsProgressUploaded(false);
       setSelectedResultPlayerId(null);
+      setSpectatorViewPlayerId(null);
+      setSpectatorBoard(null);
+      setSpectatorBoardError(null);
+      setSpectatorBoardLoading(false);
       resetReplay();
       applyBoardConfig(session.board);
       setVsInfo(`已建立對局，分享 ID: ${session.matchId}`);
@@ -771,6 +776,7 @@ function App() {
       setVsError(null);
       setVsInfo("加入中...");
       const session = await joinMatch(idNum, { token: token as string });
+      setIsSpectator(false);
       setVsMatch(session);
       setVsName(displayName);
       setVsState(null);
@@ -778,6 +784,10 @@ function App() {
       setVsStepCount(0);
       setVsProgressUploaded(false);
       setSelectedResultPlayerId(null);
+      setSpectatorViewPlayerId(null);
+      setSpectatorBoard(null);
+      setSpectatorBoardError(null);
+      setSpectatorBoardLoading(false);
       resetReplay();
       applyBoardConfig(session.board);
       setVsInfo(`已加入對局 #${session.matchId}`);
@@ -853,6 +863,7 @@ function App() {
       setVsMatch(session);
       setVsState(state);
       setIsSpectator(true);
+      setVsName("");
       setVsStepCount(0);
       setVsProgressUploaded(false);
       setSelectedResultPlayerId(state.players[0]?.id ?? null);
