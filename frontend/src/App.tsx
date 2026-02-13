@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Board } from "./components/Board";
 import { useGameStore } from "./state/gameStore";
 import { difficultiesList, remainingMines, createEmptyState, reveal as replayReveal, toggleFlag as replayToggleFlag, chordReveal as replayChordReveal } from "./lib/engine";
@@ -90,6 +90,7 @@ function App() {
   const [vsName, setVsName] = useState("");
   const [vsMatch, setVsMatch] = useState<MatchSession | null>(null);
   const [vsState, setVsState] = useState<MatchState | null>(null);
+  const vsStateRef = useRef<MatchState | null>(null);
   const [isSpectator, setIsSpectator] = useState(false);
   const [vsError, setVsError] = useState<string | null>(null);
   const [vsInfo, setVsInfo] = useState<string | null>(null);
@@ -111,8 +112,19 @@ function App() {
   const [replayPlaying, setReplayPlaying] = useState(false);
   const [replayLoading, setReplayLoading] = useState(false);
   const [replayError, setReplayError] = useState<string | null>(null);
+  const [spectatorViewPlayerId, setSpectatorViewPlayerId] = useState<number | null>(null);
+  const [spectatorBoard, setSpectatorBoard] = useState<BoardState | null>(null);
+  const [spectatorBoardLoading, setSpectatorBoardLoading] = useState(false);
+  const [spectatorBoardError, setSpectatorBoardError] = useState<string | null>(null);
 
   const isAuthenticated = !!currentUser && !!token;
+
+  const boardForView = useMemo(() => {
+    if (isSpectator) {
+      return spectatorBoard ?? board;
+    }
+    return board;
+  }, [board, isSpectator, spectatorBoard]);
 
   // Rehydrate versus session after refresh using stored player token/id.
   useEffect(() => {
@@ -186,7 +198,9 @@ function App() {
     if (mode === "solo") {
       setDifficulty(soloDifficulty);
       startFresh();
-    } else if (mode === "versus") {
+      return;
+    }
+    if (mode === "versus") {
       if (vsMatch) {
         applyBoardConfig({
           width: vsMatch.board.width,
@@ -201,7 +215,7 @@ function App() {
         startFresh();
       }
     }
-  }, [mode, soloDifficulty, versusDifficulty, vsMatch]);
+  }, [mode, soloDifficulty, versusDifficulty, vsMatch?.matchId]);
 
   useEffect(() => {
     setAutoSubmitted(false);
@@ -265,17 +279,17 @@ function App() {
   }, [token]);
 
   const elapsedMs = useMemo(() => {
-    if (!board.startedAt) return 0;
-    const end = board.endedAt ?? now;
-    return Math.max(0, end - board.startedAt);
-  }, [board.startedAt, board.endedAt, now]);
+    if (!boardForView.startedAt) return 0;
+    const end = boardForView.endedAt ?? now;
+    return Math.max(0, end - boardForView.startedAt);
+  }, [boardForView.endedAt, boardForView.startedAt, now]);
 
   const statusText = useMemo(() => {
-    if (board.status === "idle") return "未開始";
-    if (board.status === "won") return "你贏了！";
-    if (board.status === "lost") return mode === "versus" ? "你輸了" : "踩到雷 QQ";
+    if (boardForView.status === "idle") return "未開始";
+    if (boardForView.status === "won") return "你贏了！";
+    if (boardForView.status === "lost") return mode === "versus" ? "你輸了" : "踩到雷 QQ";
     return "進行中";
-  }, [board.status, mode]);
+  }, [boardForView.status, mode]);
 
   const myPlayer = useMemo(() => {
     if (!vsMatch || !vsState) return null;
@@ -286,6 +300,11 @@ function App() {
     if (!vsState || !vsMatch) return null;
     return vsState.players.find((p) => p.id !== vsMatch.playerId) ?? null;
   }, [vsState, vsMatch]);
+
+  const spectatedPlayer = useMemo(() => {
+    if (!vsState) return null;
+    return vsState.players.find((p) => p.id === spectatorViewPlayerId) ?? null;
+  }, [spectatorViewPlayerId, vsState]);
 
   const preStartLeft = useMemo(() => {
     const startMs = parseUtcMillis(vsState?.started_at);
@@ -416,6 +435,10 @@ function App() {
       clearInterval(id);
     };
   }, [mode, vsMatch?.matchId]);
+
+  useEffect(() => {
+    vsStateRef.current = vsState;
+  }, [vsState]);
 
   useEffect(() => {
     if (mode !== "versus") return;
@@ -567,6 +590,19 @@ function App() {
       setIsSpectator(true);
     }
   }, [vsState?.status, isSpectator]);
+
+  useEffect(() => {
+    if (!isSpectator || !vsState) {
+      setSpectatorViewPlayerId(null);
+      setSpectatorBoard(null);
+      setSpectatorBoardError(null);
+      setSpectatorBoardLoading(false);
+      return;
+    }
+    if (spectatorViewPlayerId === null && vsState.players.length > 0) {
+      setSpectatorViewPlayerId(vsState.players[0].id);
+    }
+  }, [isSpectator, spectatorViewPlayerId, vsState]);
 
   useEffect(() => {
     if (!replayPlaying) return;
@@ -733,6 +769,10 @@ function App() {
     setVsStepCount(0);
     setVsProgressUploaded(false);
     setSelectedResultPlayerId(null);
+    setSpectatorViewPlayerId(null);
+    setSpectatorBoard(null);
+    setSpectatorBoardError(null);
+    setSpectatorBoardLoading(false);
     resetReplay();
     startFresh();
     localStorage.removeItem(VS_SESSION_KEY);
@@ -765,6 +805,10 @@ function App() {
       setVsStepCount(0);
       setVsProgressUploaded(false);
       setSelectedResultPlayerId(state.players[0]?.id ?? null);
+      setSpectatorViewPlayerId(state.players[0]?.id ?? null);
+      setSpectatorBoard(null);
+      setSpectatorBoardError(null);
+      setSpectatorBoardLoading(false);
       resetReplay();
       setVsInfo(`觀戰對局 #${idNum}`);
     } catch (e) {
@@ -859,6 +903,52 @@ function App() {
       safeStart: vsState.safe_start ?? null
     });
   };
+
+  const loadSpectatorBoard = useCallback(
+    async (targetPlayerId?: number) => {
+      if (!isSpectator || !vsMatch) return;
+      const currentState = vsStateRef.current;
+      if (!currentState) return;
+
+      const fallbackId = currentState.players[0]?.id;
+      const playerId = targetPlayerId ?? spectatorViewPlayerId ?? fallbackId;
+      if (playerId === undefined || playerId === null) return;
+      const player = currentState.players.find((p) => p.id === playerId);
+      if (!player) return;
+      const baseDifficulty = (currentState.difficulty as DifficultyKey | null) ?? versusDifficulty;
+      const baseBoard = createEmptyState(baseDifficulty, {
+        width: currentState.width,
+        height: currentState.height,
+        mines: currentState.mines,
+        seed: currentState.seed,
+        safeStart: currentState.safe_start ?? null
+      });
+
+      setSpectatorBoardLoading(true);
+      setSpectatorBoardError(null);
+      try {
+        if (player.progress?.board) {
+          setSpectatorBoard(player.progress.board as BoardState);
+        } else {
+          const steps = await fetchMatchSteps(vsMatch.matchId);
+          const filtered = steps.filter((s) => s.player_name === player.name);
+          const reconstructed = filtered.reduce((state, step) => applyReplayStep(state, step), baseBoard);
+          setSpectatorBoard(reconstructed);
+        }
+      } catch (e) {
+        setSpectatorBoardError(e instanceof Error ? e.message : "載入觀戰棋盤失敗");
+        setSpectatorBoard(null);
+      } finally {
+        setSpectatorBoardLoading(false);
+      }
+    },
+    [isSpectator, spectatorViewPlayerId, vsMatch?.matchId, versusDifficulty]
+  );
+
+  useEffect(() => {
+    if (!isSpectator || spectatorViewPlayerId === null) return;
+    loadSpectatorBoard(spectatorViewPlayerId);
+  }, [isSpectator, loadSpectatorBoard, spectatorViewPlayerId, vsMatch?.matchId, vsState?.status]);
 
   const startReplayForSelected = async () => {
     if (!vsMatch || !vsState) return;
@@ -1127,7 +1217,7 @@ function App() {
                 </div>
                 <div className="px-4 py-2 rounded-lg bg-[var(--surface)] shadow border border-[var(--border)]">
                   <div className="text-xs opacity-70">剩餘雷</div>
-                  <div className="text-2xl font-mono">{remainingMines(board)}</div>
+                  <div className="text-2xl font-mono">{remainingMines(boardForView)}</div>
                 </div>
                 <div className="px-4 py-2 rounded-lg bg-[var(--surface)] shadow border border-[var(--border)]">
                   <div className="text-xs opacity-70">狀態</div>
@@ -1141,7 +1231,36 @@ function App() {
                     對局將在 {preStartLeft} 秒後開始
                   </div>
                 )}
-                <Board board={board} onReveal={handleReveal} onFlag={handleFlag} onChord={handleChord} />
+                {mode === "versus" && isSpectator && (vsState?.players?.length ?? 0) > 0 && (
+                  <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
+                    <span className="opacity-80">觀戰顯示：</span>
+                    {vsState?.players.map((p) => (
+                      <button
+                        key={p.id}
+                        onClick={() => setSpectatorViewPlayerId(p.id)}
+                        className={`px-3 py-1 rounded-full border text-xs ${
+                          spectatorViewPlayerId === p.id
+                            ? "bg-[var(--accent)] text-white border-transparent"
+                            : "bg-[var(--surface-strong)] border-[var(--border)]"
+                        }`}
+                      >
+                        {p.name}
+                      </button>
+                    ))}
+                    <button
+                      onClick={() => loadSpectatorBoard(spectatorViewPlayerId ?? undefined)}
+                      disabled={spectatorBoardLoading}
+                      className="px-3 py-1 rounded-full border text-xs bg-[var(--surface-strong)] border-[var(--border)] disabled:opacity-60"
+                    >
+                      {spectatorBoardLoading ? "載入中..." : "更新棋盤"}
+                    </button>
+                    {spectatorBoardError && <span className="text-xs text-red-600">{spectatorBoardError}</span>}
+                    {spectatedPlayer && !spectatorBoardError && !spectatorBoardLoading && (
+                      <span className="text-xs opacity-70">正在查看：{spectatedPlayer.name}</span>
+                    )}
+                  </div>
+                )}
+                <Board board={boardForView} onReveal={handleReveal} onFlag={handleFlag} onChord={handleChord} />
               </div>
             </div>
 

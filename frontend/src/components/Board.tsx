@@ -24,7 +24,7 @@ export const Board = ({ board, onReveal, onFlag, onChord, maxWidth }: Props) => 
         <CellView
           key={`${cell.x}-${cell.y}`}
           cell={cell}
-          isSafeStart={!!board.safeStart && cell.x === board.safeStart.x && cell.y === board.safeStart.y && board.status === "idle" && !board.startedAt}
+          isSafeStart={!!board.safeStart && cell.x === board.safeStart.x && cell.y === board.safeStart.y}
           onReveal={() => onReveal(cell.x, cell.y)}
           onFlag={() => onFlag(cell.x, cell.y)}
           onChord={() => onChord(cell.x, cell.y)}
