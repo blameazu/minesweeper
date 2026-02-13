@@ -1026,17 +1026,34 @@ function App() {
         safeStart: currentState.safe_start ?? null
       });
 
+      if (spectatorBoardLoading) return;
       setSpectatorBoardLoading(true);
       setSpectatorBoardError(null);
       try {
+        let nextBoard: BoardState;
         if (player.progress?.board) {
-          setSpectatorBoard(player.progress.board as BoardState);
+          nextBoard = player.progress.board as BoardState;
         } else {
           const steps = await fetchMatchSteps(vsMatch.matchId);
           const filtered = steps.filter((s) => s.player_name === player.name);
-          const reconstructed = filtered.reduce((state, step) => applyReplayStep(state, step), baseBoard);
-          setSpectatorBoard(reconstructed);
+          nextBoard = filtered.reduce((state, step) => applyReplayStep(state, step), baseBoard);
         }
+
+        const startedAtMs = parseUtcMillis(currentState.started_at) ?? nextBoard.startedAt ?? null;
+        const finishedMs = parseUtcMillis(player.finished_at as string | undefined) ?? parseUtcMillis(currentState.ended_at) ?? nextBoard.endedAt ?? null;
+        let status = nextBoard.status;
+        if (player.result === "win") status = "won";
+        else if (player.result === "lose" || player.result === "forfeit") status = "lost";
+        else if (startedAtMs && !finishedMs) status = "playing";
+
+        nextBoard = {
+          ...nextBoard,
+          startedAt: startedAtMs,
+          endedAt: finishedMs,
+          status,
+        };
+
+        setSpectatorBoard(nextBoard);
       } catch (e) {
         setSpectatorBoardError(e instanceof Error ? e.message : "載入觀戰棋盤失敗");
         setSpectatorBoard(null);
@@ -1044,13 +1061,32 @@ function App() {
         setSpectatorBoardLoading(false);
       }
     },
-    [isSpectator, spectatorViewPlayerId, vsMatch?.matchId, versusDifficulty]
+    [isSpectator, spectatorBoardLoading, spectatorViewPlayerId, vsMatch?.matchId, versusDifficulty]
   );
 
   useEffect(() => {
     if (!isSpectator || spectatorViewPlayerId === null) return;
     loadSpectatorBoard(spectatorViewPlayerId);
   }, [isSpectator, loadSpectatorBoard, spectatorViewPlayerId, vsMatch?.matchId, vsState?.status]);
+
+  useEffect(() => {
+    if (!isSpectator || !vsMatch) return;
+    // Active/pending: poll for live updates; finished: single refresh.
+    const status = vsState?.status;
+    if (status === "finished") {
+      if (!spectatorBoard && !spectatorBoardLoading) {
+        loadSpectatorBoard(spectatorViewPlayerId ?? undefined);
+      }
+      return;
+    }
+    const tick = () => {
+      if (spectatorBoardLoading) return;
+      loadSpectatorBoard(spectatorViewPlayerId ?? undefined);
+    };
+    tick();
+    const id = setInterval(tick, 2000);
+    return () => clearInterval(id);
+  }, [isSpectator, vsMatch?.matchId, vsState?.status, spectatorViewPlayerId, spectatorBoardLoading, spectatorBoard, loadSpectatorBoard]);
 
   const startReplayForSelected = async () => {
     if (!vsMatch || !vsState) return;
@@ -1657,9 +1693,8 @@ function App() {
                                 {vsState?.host_id === p.id ? " (房主)" : ""}
                               </span>
                               <span className="opacity-70 flex items-center gap-2">
-                                <span>
-                                  {vsState?.host_id === p.id ? "-" : p.ready ? "已準備" : "未準備"}
-                                </span>
+                                {p.rank ? <span className="font-mono">#{p.rank}</span> : null}
+                                <span>{vsState?.host_id === p.id ? "-" : p.ready ? "已準備" : "未準備"}</span>
                                 <span>{renderResult(p.result, vsState?.status)}</span>
                               </span>
                             </div>

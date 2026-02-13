@@ -60,6 +60,7 @@ export interface MatchStatePlayer {
   steps_count: number;
   finished_at?: string | null;
   ready: boolean;
+  rank?: number | null;
   progress?: MatchProgress | null;
 }
 

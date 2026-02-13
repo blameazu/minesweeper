@@ -115,6 +115,7 @@ def _player_to_schema(player: MatchPlayer) -> MatchStatePlayer:
             progress = json.loads(player.progress)
         except json.JSONDecodeError:
             progress = None
+    rank = getattr(player, "_rank", None)
     return MatchStatePlayer(
         id=player.id,
         name=player.name,
@@ -123,8 +124,35 @@ def _player_to_schema(player: MatchPlayer) -> MatchStatePlayer:
         steps_count=player.steps_count,
         finished_at=player.finished_at,
         ready=player.ready,
+        rank=rank,
         progress=progress,
     )
+
+
+def _compute_standings(match: Match, players: list[MatchPlayer]) -> list[tuple[int, MatchPlayer]]:
+    """Return list of (rank, player) sorted by outcome rules."""
+    standings: list[tuple[bool, int, int, int, datetime, MatchPlayer]] = []
+    for p in players:
+        try:
+            progress = json.loads(p.progress) if p.progress else None
+        except json.JSONDecodeError:
+            progress = None
+        revealed, hit_mine = _progress_stats(progress)
+        explicit_lose = p.result == "lose"
+        hit_flag = hit_mine or explicit_lose
+        duration = p.duration_ms if p.duration_ms is not None else 10**12
+        steps = p.steps_count
+        standings.append((hit_flag, -revealed, duration, steps, p.created_at, p))
+
+    # Sort: non-mine first, more revealed, shorter duration, fewer steps, earlier join
+    standings.sort(key=lambda t: (t[0], t[1], t[2], t[3], t[4]))
+
+    ranked: list[tuple[int, MatchPlayer]] = []
+    rank = 1
+    for _, _, _, _, _, p in standings:
+        ranked.append((rank, p))
+        rank += 1
+    return ranked
 
 
 def _apply_timeout(session: Session, match: Match) -> list[MatchPlayer]:
@@ -153,7 +181,11 @@ def _apply_timeout(session: Session, match: Match) -> list[MatchPlayer]:
 
     session.commit()
     session.refresh(match)
-    return _list_players(session, match)
+    players = _list_players(session, match)
+    ranked = _compute_standings(match, players)
+    for r, p in ranked:
+        p._rank = r
+    return players
 
 
 @router.post("", response_model=MatchCreateResponse)
@@ -269,6 +301,11 @@ async def get_match_state(match_id: int, session: Session = Depends(get_session)
     match = _get_match(session, match_id)
     players = _apply_timeout(session, match)
     countdown_secs = match.countdown_secs or _default_countdown(match.difficulty)
+    ranked = _compute_standings(match, players) if match.status == MatchStatus.finished else None
+    if ranked:
+        for r, p in ranked:
+            p._rank = r
+
     return MatchState(
         id=match.id,
         status=match.status.value,
@@ -357,23 +394,27 @@ async def finish_match(match_id: int, payload: MatchFinish, session: Session = D
         player.steps_count = payload.steps_count or player.steps_count
         player.finished_at = now
 
-    # If someone truly completed the board, end immediately: they win, others lose if unset.
+    # Decide if we should finish now
+    should_finish = False
     if completed_board and actual_outcome == "win":
-        other_players = [p for p in players if p.id != player.id]
-        for op in other_players:
-            if not op.result:
-                op.result = "lose"
-                op.finished_at = now
+        should_finish = True
+    else:
+        # if everyone has reported (all lose/forfeit), also finish
+        should_finish = all(p.result for p in players)
+
+    if should_finish:
+        ranked = _compute_standings(match, players)
+        for rank, p in ranked:
+            p._rank = rank
+            if rank == 1:
+                p.result = "win"
+            else:
+                p.result = "lose"
+            p.finished_at = p.finished_at or now
         match.status = MatchStatus.finished
         match.ended_at = now
         session.commit()
         return {"ok": True}
-
-    # Otherwise (lose/forfeit/draw), keep match open until someone wins or everyone has reported.
-    all_reported = all(p.result for p in players)
-    if all_reported:
-        match.status = MatchStatus.finished
-        match.ended_at = now
 
     session.commit()
     return {"ok": True}

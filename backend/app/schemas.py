@@ -45,6 +45,7 @@ class MatchStatePlayer(BaseModel):
     steps_count: int
     finished_at: Optional[datetime]
     ready: bool
+    rank: Optional[int] = None
     progress: Optional[dict] = None
 
     model_config = ConfigDict(from_attributes=True)
