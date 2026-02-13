@@ -36,6 +36,31 @@ export interface LeaderboardEntry {
   difficulty: DifficultyKey;
   timeMs: number;
   createdAt: string;
+  hasReplay?: boolean;
+}
+
+export interface ReplayStep {
+  action: "reveal" | "flag" | "chord";
+  x: number;
+  y: number;
+  elapsed_ms?: number | null;
+}
+
+export interface LeaderboardReplay {
+  entry_id: number;
+  board: {
+    width: number;
+    height: number;
+    mines: number;
+    seed: string;
+    difficulty?: string | null;
+    safe_start?: { x: number; y: number } | null;
+  };
+  steps: ReplayStep[];
+  time_ms: number;
+  duration_ms?: number | null;
+  steps_count: number;
+  created_at: string;
 }
 
 export interface MatchBoard {
@@ -154,6 +179,8 @@ export interface ProfileBestScore {
   difficulty: string;
   time_ms: number;
   created_at: string;
+  entry_id: number;
+  has_replay: boolean;
 }
 
 export interface ProfileResponse {

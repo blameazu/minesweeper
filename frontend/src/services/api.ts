@@ -1,6 +1,7 @@
 import type {
   DifficultyKey,
   LeaderboardEntry,
+  LeaderboardReplay,
   MatchBoard,
   MatchSession,
   MatchState,
@@ -12,7 +13,8 @@ import type {
   ActiveMatchResponse,
   BlogPostItem,
   BlogPostDetail,
-  BlogComment
+  BlogComment,
+  ReplayStep
 } from "../types";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
@@ -24,13 +26,19 @@ export const submitScore = async (params: {
   difficulty: DifficultyKey;
   timeMs: number;
   token: string;
+  replay?: {
+    board: { width: number; height: number; mines: number; seed: string; safe_start?: { x: number; y: number } | null };
+    steps: ReplayStep[];
+    duration_ms?: number | null;
+  };
 }) => {
   const res = await fetch(`${API_BASE}/api/leaderboard`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...NGROK_HEADER, ...authHeaders(params.token) },
     body: JSON.stringify({
       difficulty: params.difficulty,
-      time_ms: params.timeMs
+      time_ms: params.timeMs,
+      replay: params.replay
     })
   });
   if (!res.ok) {
@@ -62,8 +70,15 @@ export const fetchLeaderboard = async (difficulty: DifficultyKey): Promise<Leade
     player: item.player,
     difficulty: item.difficulty,
     timeMs: item.time_ms ?? item.timeMs,
-    createdAt: item.created_at ?? item.createdAt ?? ""
+    createdAt: item.created_at ?? item.createdAt ?? "",
+    hasReplay: item.has_replay ?? item.hasReplay ?? false
   }));
+};
+
+export const fetchLeaderboardReplay = async (entryId: number): Promise<LeaderboardReplay> => {
+  const res = await fetch(`${API_BASE}/api/leaderboard/${entryId}/replay`, { headers: { ...NGROK_HEADER } });
+  if (!res.ok) throw new Error(`讀取回放失敗 (${res.status})`);
+  return res.json();
 };
 
 export const deleteMatch = async (matchId: number, params: { playerToken: string }) => {

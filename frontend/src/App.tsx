@@ -17,6 +17,8 @@ import type {
   User,
   ProfileResponse,
   MatchStep,
+  ReplayStep,
+  LeaderboardReplay,
   BlogPostItem,
   BlogPostDetail
 } from "./types";
@@ -48,7 +50,8 @@ import {
   uploadBlogImage,
   createBlogPost,
   addBlogComment,
-  voteBlogPost
+  voteBlogPost,
+  fetchLeaderboardReplay
 } from "./services/api";
 
 const formatMs = (ms: number | null | undefined) => {
@@ -65,6 +68,7 @@ const formatCountdown = (secs: number | null | undefined) => {
 
 const VS_SESSION_KEY = "vs_session";
 const UI_THEME_KEY = "ui_theme";
+const THEME_OPTIONS = ["light", "dark", "forest", "sunset"] as const;
 const UI_VIEW_KEY = "ui_view";
 const UI_MODE_KEY = "ui_mode";
 
@@ -116,7 +120,7 @@ function App() {
   const [loadingLb, setLoadingLb] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [theme, setTheme] = useState<"light" | "dark">(() => readStored(UI_THEME_KEY, "light", ["light", "dark"]));
+  const [theme, setTheme] = useState<(typeof THEME_OPTIONS)[number]>(() => readStored(UI_THEME_KEY, "light", THEME_OPTIONS));
   const [vsName, setVsName] = useState("");
   const [vsMatch, setVsMatch] = useState<MatchSession | null>(null);
   const [vsState, setVsState] = useState<MatchState | null>(null);
@@ -155,6 +159,14 @@ function App() {
   const [blogEditTitle, setBlogEditTitle] = useState("");
   const [blogEditContent, setBlogEditContent] = useState("");
   const [blogImageUploading, setBlogImageUploading] = useState(false);
+  const [soloReplaySteps, setSoloReplaySteps] = useState<ReplayStep[]>([]);
+  const replayEntryId = useMemo(() => {
+    if (typeof window === "undefined") return null;
+    const id = new URLSearchParams(window.location.search).get("replay");
+    if (!id) return null;
+    const num = Number(id);
+    return Number.isNaN(num) ? null : num;
+  }, []);
 
   const md = useMemo(() => {
     const instance = new MarkdownIt({ html: false, linkify: true, breaks: true });
@@ -176,12 +188,21 @@ function App() {
   const [soloDifficulty, setSoloDifficulty] = useState<DifficultyKey>(board.difficulty);
   const [versusDifficulty, setVersusDifficulty] = useState<DifficultyKey>("beginner");
   const [replayBoard, setReplayBoard] = useState<BoardState | null>(null);
+  const [replayBase, setReplayBase] = useState<BoardState | null>(null);
   const [replaySteps, setReplaySteps] = useState<MatchStep[]>([]);
   const [replayIndex, setReplayIndex] = useState(0);
   const [replayPlaying, setReplayPlaying] = useState(false);
   const [replayLoading, setReplayLoading] = useState(false);
   const [replayError, setReplayError] = useState<string | null>(null);
-  const [replaySpeed, setReplaySpeed] = useState<"slow" | "normal" | "fast">("normal");
+  const [replaySpeed, setReplaySpeed] = useState(1);
+  const [lbReplayBoard, setLbReplayBoard] = useState<BoardState | null>(null);
+  const [lbReplayBase, setLbReplayBase] = useState<BoardState | null>(null);
+  const [lbReplaySteps, setLbReplaySteps] = useState<ReplayStep[]>([]);
+  const [lbReplayIndex, setLbReplayIndex] = useState(0);
+  const [lbReplayPlaying, setLbReplayPlaying] = useState(false);
+  const [lbReplayLoadingId, setLbReplayLoadingId] = useState<string | null>(null);
+  const [lbReplayError, setLbReplayError] = useState<string | null>(null);
+  const [lbReplayMeta, setLbReplayMeta] = useState<{ player: string; timeMs: number; difficulty: DifficultyKey } | null>(null);
   const [spectatorViewPlayerId, setSpectatorViewPlayerId] = useState<number | null>(null);
   const [spectatorBoard, setSpectatorBoard] = useState<BoardState | null>(null);
   const [spectatorBoardLoading, setSpectatorBoardLoading] = useState(false);
@@ -255,6 +276,12 @@ function App() {
     }
   }, []);
 
+  const elapsedMs = useMemo(() => {
+    if (!boardForView.startedAt) return 0;
+    const end = boardForView.endedAt ?? now;
+    return Math.max(0, end - boardForView.startedAt);
+  }, [boardForView.endedAt, boardForView.startedAt, now]);
+
   useEffect(() => {
     const shouldTick = (board.startedAt && !board.endedAt) || (mode === "versus" && !isSpectator && vsState?.status === "active");
     if (!shouldTick) return;
@@ -276,10 +303,27 @@ function App() {
     }
   }, [view, mode]);
 
+  const resetSoloReplay = useCallback(() => {
+    setSoloReplaySteps([]);
+  }, []);
+
+  const recordSoloStep = useCallback(
+    (action: ReplayStep["action"], x: number, y: number) => {
+      if (mode !== "solo") return;
+      setSoloReplaySteps((prev) => [...prev, { action, x, y, elapsed_ms: elapsedMs }]);
+    },
+    [elapsedMs, mode]
+  );
+
+  const restartBoard = useCallback(() => {
+    if (mode === "solo") resetSoloReplay();
+    startFresh();
+  }, [mode, resetSoloReplay, startFresh]);
+
   useEffect(() => {
     if (mode === "solo") {
       setDifficulty(soloDifficulty);
-      startFresh();
+      restartBoard();
       return;
     }
     if (mode === "versus") {
@@ -294,10 +338,10 @@ function App() {
         });
       } else {
         setDifficulty(versusDifficulty);
-        startFresh();
+        restartBoard();
       }
     }
-  }, [mode, soloDifficulty, versusDifficulty, vsMatch?.matchId]);
+  }, [mode, restartBoard, soloDifficulty, versusDifficulty, vsMatch?.matchId]);
 
   useEffect(() => {
     setAutoSubmitted(false);
@@ -416,12 +460,6 @@ function App() {
     };
   }, [isAuthenticated, token, vsMatch]);
 
-  const elapsedMs = useMemo(() => {
-    if (!boardForView.startedAt) return 0;
-    const end = boardForView.endedAt ?? now;
-    return Math.max(0, end - boardForView.startedAt);
-  }, [boardForView.endedAt, boardForView.startedAt, now]);
-
   const statusText = useMemo(() => {
     if (boardForView.status === "idle") return "未開始";
     if (boardForView.status === "won") return "你贏了！";
@@ -429,15 +467,49 @@ function App() {
     return "進行中";
   }, [boardForView.status, mode]);
 
-  const replayDelayMs = useMemo(() => {
-    switch (replaySpeed) {
-      case "slow":
-        return 900;
-      case "fast":
-        return 350;
-      default:
-        return 600;
-    }
+  const computeReplayDelay = useCallback(
+    <T extends { elapsed_ms?: number | null }>(stepsArr: T[], idx: number, speedFactor: number) => {
+      const current = stepsArr[idx];
+      if (!current) return 120 * speedFactor;
+      const prevElapsed = idx === 0 ? 0 : stepsArr[idx - 1]?.elapsed_ms ?? 0;
+      const currElapsed = current.elapsed_ms ?? prevElapsed + 200;
+      const delta = Math.max(0, currElapsed - prevElapsed);
+      const base = Math.max(70, Math.min(320, delta * 0.12));
+      return base * speedFactor;
+    },
+    []
+  );
+
+  const cloneBoardState = useCallback((state: BoardState): BoardState => {
+    return { ...state, cells: state.cells.map((c) => ({ ...c })) };
+  }, []);
+
+  const rebuildReplayBoard = useCallback(
+    (base: BoardState | null, stepsArr: Array<ReplayStep | MatchStep>, targetIndex: number) => {
+      if (!base) return null;
+      const capped = Math.max(0, Math.min(targetIndex, stepsArr.length));
+      let next = cloneBoardState(base);
+      for (let i = 0; i < capped; i += 1) {
+        const step = stepsArr[i];
+        next = applyReplayStep(next, step as any);
+      }
+      return next;
+    },
+    [cloneBoardState]
+  );
+
+  const resetLeaderboardReplay = useCallback(() => {
+    setLbReplayBoard(null);
+    setLbReplayBase(null);
+    setLbReplaySteps([]);
+    setLbReplayIndex(0);
+    setLbReplayPlaying(false);
+    setLbReplayMeta(null);
+  }, []);
+
+  const replaySpeedFactor = useMemo(() => {
+    if (replaySpeed <= 0) return 1;
+    return 1 / replaySpeed;
   }, [replaySpeed]);
 
   const myPlayer = useMemo(() => {
@@ -722,7 +794,7 @@ function App() {
     setSoloDifficulty(key);
     if (mode === "solo") {
       setDifficulty(key);
-      startFresh();
+      restartBoard();
     }
   };
 
@@ -734,7 +806,7 @@ function App() {
     setVersusDifficulty(key);
     if (mode === "versus" && !vsMatch) {
       setDifficulty(key);
-      startFresh();
+      restartBoard();
     }
   };
 
@@ -747,7 +819,16 @@ function App() {
     try {
       setSubmitting(true);
       setError(null);
-      await submitScore({ difficulty: board.difficulty, timeMs: elapsedMs, token });
+      await submitScore({
+        difficulty: board.difficulty,
+        timeMs: elapsedMs,
+        token,
+        replay: {
+          board: { width: board.width, height: board.height, mines: board.mines, seed: board.seed, safe_start: board.safeStart ?? null },
+          steps: soloReplaySteps,
+          duration_ms: elapsedMs
+        }
+      });
       await loadLeaderboard(board.difficulty);
       await refreshProfile();
       setAutoSubmitted(true);
@@ -768,7 +849,16 @@ function App() {
       try {
         setSubmitting(true);
         setError(null);
-        await submitScore({ difficulty: board.difficulty, timeMs: elapsedMs, token });
+        await submitScore({
+          difficulty: board.difficulty,
+          timeMs: elapsedMs,
+          token,
+          replay: {
+            board: { width: board.width, height: board.height, mines: board.mines, seed: board.seed, safe_start: board.safeStart ?? null },
+            steps: soloReplaySteps,
+            duration_ms: elapsedMs
+          }
+        });
         await loadLeaderboard(board.difficulty);
         await refreshProfile();
       } catch (e) {
@@ -781,7 +871,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [autoSubmitted, board.difficulty, board.endedAt, board.startedAt, board.status, elapsedMs, isAuthenticated, token, currentUser, submitting]);
+  }, [autoSubmitted, board.difficulty, board.endedAt, board.startedAt, board.status, elapsedMs, isAuthenticated, token, currentUser, submitting, soloReplaySteps]);
 
   useEffect(() => {
     if (selectedResultPlayerId === null) return;
@@ -789,10 +879,11 @@ function App() {
   }, [selectedResultPlayerId, vsMatch?.matchId]);
 
   useEffect(() => {
+    if (mode !== "versus") return;
     if (vsState?.status === "finished" && !isSpectator) {
       setIsSpectator(true);
     }
-  }, [vsState?.status, isSpectator]);
+  }, [mode, vsState?.status, isSpectator]);
 
   useEffect(() => {
     if (!isSpectator || !vsState) {
@@ -814,13 +905,35 @@ function App() {
       setReplayPlaying(false);
       return;
     }
+    const delay = computeReplayDelay(replaySteps, replayIndex, replaySpeedFactor);
     const timer = setTimeout(() => {
       const step = replaySteps[replayIndex];
       setReplayBoard((prev) => (prev ? applyReplayStep(prev, step) : prev));
       setReplayIndex((i) => i + 1);
-    }, replayDelayMs);
+    }, delay);
     return () => clearTimeout(timer);
-  }, [replayDelayMs, replayIndex, replayPlaying, replayBoard, replaySteps]);
+  }, [computeReplayDelay, replayIndex, replayPlaying, replayBoard, replaySpeedFactor, replaySteps]);
+
+  useEffect(() => {
+    if (!lbReplayPlaying) return;
+    if (!lbReplayBoard) return;
+    if (lbReplayIndex >= lbReplaySteps.length) {
+      setLbReplayPlaying(false);
+      return;
+    }
+    const delay = computeReplayDelay(lbReplaySteps, lbReplayIndex, replaySpeedFactor);
+    const timer = setTimeout(() => {
+      const step = lbReplaySteps[lbReplayIndex];
+      setLbReplayBoard((prev) => (prev ? applyReplayStep(prev, step as any) : prev));
+      setLbReplayIndex((i) => i + 1);
+    }, delay);
+    return () => clearTimeout(timer);
+  }, [computeReplayDelay, lbReplayBoard, lbReplayIndex, lbReplayPlaying, lbReplaySteps, replaySpeedFactor]);
+
+  useEffect(() => {
+    if (!replayEntryId) return;
+    startLeaderboardReplay(replayEntryId);
+  }, [replayEntryId]);
 
   const applyBoardConfig = (config: {
     width: number;
@@ -989,7 +1102,7 @@ function App() {
     setSpectatorBoardError(null);
     setSpectatorBoardLoading(false);
     resetReplay();
-    startFresh();
+    restartBoard();
     localStorage.removeItem(VS_SESSION_KEY);
   };
 
@@ -1032,6 +1145,49 @@ function App() {
       setVsError(e instanceof Error ? e.message : "觀戰載入失敗");
     }
   };
+
+  const startLeaderboardReplay = async (entryOrId: LeaderboardEntry | number) => {
+    const entryId = typeof entryOrId === "number" ? entryOrId : Number(entryOrId.id);
+    const fallbackPlayer = typeof entryOrId === "number" ? null : entryOrId.player;
+    const fallbackDiff = typeof entryOrId === "number" ? null : entryOrId.difficulty;
+    const fallbackTime = typeof entryOrId === "number" ? null : entryOrId.timeMs;
+
+    resetLeaderboardReplay();
+    setLbReplayError(null);
+    setLbReplayLoadingId(String(entryId));
+    try {
+      const data = await fetchLeaderboardReplay(Number(entryId));
+      const diff = (data.difficulty as DifficultyKey | null) ?? fallbackDiff ?? "beginner";
+      const base = createEmptyState(diff, {
+        width: data.board.width,
+        height: data.board.height,
+        mines: data.board.mines,
+        seed: data.board.seed,
+        safeStart: data.board.safe_start ?? null,
+      });
+      const baseCloned = cloneBoardState(base);
+      setLbReplayBase(baseCloned);
+      setLbReplayBoard(cloneBoardState(baseCloned));
+      setLbReplaySteps(data.steps);
+      setLbReplayIndex(0);
+      setLbReplayMeta({ player: data.player ?? fallbackPlayer ?? "", timeMs: data.time_ms ?? fallbackTime ?? 0, difficulty: diff as DifficultyKey });
+      setLbReplayPlaying(true);
+    } catch (e) {
+      setLbReplayError(e instanceof Error ? e.message : "讀取回放失敗");
+    } finally {
+      setLbReplayLoadingId(null);
+    }
+  };
+
+  const scrubLbReplay = useCallback(
+    (targetIndex: number) => {
+      const next = rebuildReplayBoard(lbReplayBase, lbReplaySteps as any[], targetIndex);
+      setLbReplayBoard(next);
+      setLbReplayIndex(targetIndex);
+      setLbReplayPlaying(false);
+    },
+    [lbReplayBase, lbReplaySteps, rebuildReplayBoard]
+  );
 
   const handleSetReady = async () => {
     if (isSpectator) {
@@ -1283,7 +1439,9 @@ function App() {
         return;
       }
 
-      setReplayBoard(baseBoard);
+      const baseCloned = cloneBoardState(baseBoard);
+      setReplayBase(baseCloned);
+      setReplayBoard(cloneBoardState(baseCloned));
       setReplaySteps(ordered);
       setReplayIndex(0);
       setReplayPlaying(true);
@@ -1316,6 +1474,9 @@ function App() {
         return;
       }
     }
+    if (mode === "solo") {
+      recordSoloStep("reveal", x, y);
+    }
     revealCell(x, y);
     const nextCount = vsStepCount + 1;
     await sendStepIfNeeded("reveal", x, y, nextCount);
@@ -1344,6 +1505,9 @@ function App() {
         return;
       }
     }
+    if (mode === "solo") {
+      recordSoloStep("flag", x, y);
+    }
     toggleFlag(x, y);
     const nextCount = vsStepCount + 1;
     await sendStepIfNeeded("flag", x, y, nextCount);
@@ -1371,6 +1535,9 @@ function App() {
         setVsError(`請先踩起始點 (${safe.x}, ${safe.y})`);
         return;
       }
+    }
+    if (mode === "solo") {
+      recordSoloStep("chord", x, y);
     }
     chordCell(x, y);
     const nextCount = vsStepCount + 1;
@@ -1413,6 +1580,7 @@ function App() {
 
   const resetReplay = () => {
     setReplayBoard(null);
+    setReplayBase(null);
     setReplaySteps([]);
     setReplayIndex(0);
     setReplayPlaying(false);
@@ -1427,7 +1595,21 @@ function App() {
     setSpectatorBoardLoading(false);
   };
 
-  const toggleTheme = () => setTheme((t) => (t === "light" ? "dark" : "light"));
+  useEffect(() => {
+    if (mode === "solo" && isSpectator) {
+      clearSpectateView();
+      restartBoard();
+    }
+  }, [mode, isSpectator, clearSpectateView, restartBoard]);
+
+  const toggleTheme = (next?: (typeof THEME_OPTIONS)[number]) => {
+    if (next) return setTheme(next);
+    // fallback: cycle
+    setTheme((t) => {
+      const idx = THEME_OPTIONS.indexOf(t);
+      return THEME_OPTIONS[(idx + 1) % THEME_OPTIONS.length];
+    });
+  };
 
   const reloadBlogPosts = async (nextSort?: "created" | "score") => {
     if (nextSort && nextSort !== blogSort) {
@@ -1461,13 +1643,18 @@ function App() {
     }
   };
 
-  const handleOpenBlogPost = async (postId: number) => {
+  const handleOpenBlogPost = async (postId: number, startEdit = false) => {
     setBlogDetailLoading(true);
     setBlogDetailError(null);
     setBlogEditing(false);
     try {
       const detail = await fetchBlogPostDetail(postId, token ?? undefined);
       setBlogDetail(detail);
+      if (startEdit && currentUser?.handle === detail.author) {
+        setBlogEditTitle(detail.title);
+        setBlogEditContent(detail.content);
+        setBlogEditing(true);
+      }
     } catch (e) {
       setBlogDetailError(e instanceof Error ? e.message : "讀取文章失敗");
     } finally {
@@ -1602,20 +1789,164 @@ function App() {
     }
   };
 
+  const scrubVsReplay = useCallback(
+    (targetIndex: number) => {
+      const next = rebuildReplayBoard(replayBase, replaySteps, targetIndex);
+      setReplayBoard(next);
+      setReplayIndex(targetIndex);
+      setReplayPlaying(false);
+    },
+    [replayBase, replaySteps, rebuildReplayBoard]
+  );
+
+  if (replayEntryId) {
+    const boardToShow = lbReplayBoard ?? lbReplayBase;
+    const totalSteps = lbReplaySteps.length;
+    return (
+      <div className="min-h-screen bg-[var(--app-bg, #0f172a)] text-[var(--text-primary)]">
+        <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <p className="text-xs uppercase tracking-[0.2em] opacity-70">Leaderboard Replay</p>
+              <h1 className="text-3xl font-bold tracking-tight">回放 #{replayEntryId}</h1>
+              {lbReplayMeta && (
+                <p className="text-sm opacity-80">
+                  玩家 {lbReplayMeta.player} · 難度 {lbReplayMeta.difficulty} · {formatMs(lbReplayMeta.timeMs)} 秒
+                </p>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => startLeaderboardReplay(replayEntryId)}
+                className="px-4 py-2 rounded-full border border-[var(--border)] bg-[var(--surface-strong)]"
+              >
+                重新載入
+              </button>
+              <button
+                onClick={() => {
+                  const url = new URL(window.location.href);
+                  url.searchParams.delete("replay");
+                  window.location.href = url.toString();
+                }}
+                className="px-4 py-2 rounded-full bg-[var(--accent)] text-white"
+              >
+                返回主頁
+              </button>
+            </div>
+          </div>
+
+          <div className="bg-[var(--surface)] rounded-2xl border border-[var(--border)] shadow p-5 space-y-4">
+            {lbReplayLoadingId ? (
+              <p className="text-sm opacity-80">載入回放中...</p>
+            ) : lbReplayError ? (
+              <div className="space-y-2">
+                <p className="text-sm text-red-600">{lbReplayError}</p>
+                <button
+                  onClick={() => startLeaderboardReplay(replayEntryId)}
+                  className="px-3 py-2 rounded border border-[var(--border)] bg-[var(--surface-strong)]"
+                >
+                  重試載入
+                </button>
+              </div>
+            ) : !boardToShow ? (
+              <p className="text-sm opacity-70">沒有可播放的棋盤資料</p>
+            ) : (
+              <>
+                <div className="flex flex-wrap items-center gap-3 justify-between">
+                  <div className="text-sm opacity-80">
+                    {lbReplayMeta ? (
+                      <span>
+                        {lbReplayMeta.player} · {lbReplayMeta.difficulty} · {formatMs(lbReplayMeta.timeMs)} 秒
+                      </span>
+                    ) : (
+                      <span>排行榜回放</span>
+                    )}
+                    <span className="ml-3 text-xs">
+                      步驟 {Math.min(lbReplayIndex, totalSteps)} / {totalSteps}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3 text-sm flex-wrap">
+                    <button
+                      onClick={() => {
+                        if (!lbReplayBase) return;
+                        if (totalSteps === 0) return;
+                        if (lbReplayPlaying) {
+                          setLbReplayPlaying(false);
+                          return;
+                        }
+                        if (lbReplayIndex >= totalSteps) {
+                          const resetBoard = rebuildReplayBoard(lbReplayBase, lbReplaySteps as any[], 0);
+                          setLbReplayBoard(resetBoard);
+                          setLbReplayIndex(0);
+                        }
+                        setLbReplayPlaying(true);
+                      }}
+                      disabled={!lbReplayBase}
+                      className="px-3 py-1.5 rounded border border-[var(--border)] bg-[var(--surface-strong)] disabled:opacity-60"
+                    >
+                      {lbReplayPlaying
+                        ? "暫停"
+                        : totalSteps === 0
+                        ? "播放"
+                        : lbReplayIndex >= totalSteps
+                        ? "重播"
+                        : lbReplayIndex > 0
+                        ? "繼續"
+                        : "播放"}
+                    </button>
+                    <label className="flex items-center gap-2 text-xs opacity-80">
+                      <span>速度 {replaySpeed.toFixed(1)}x</span>
+                      <input
+                        type="range"
+                        min="0.5"
+                        max="2"
+                        step="0.1"
+                        value={replaySpeed}
+                        onChange={(e) => setReplaySpeed(Number(e.target.value))}
+                        className="accent-[var(--accent)]"
+                      />
+                    </label>
+                    <label className="flex items-center gap-2 text-xs opacity-80">
+                      <span>進度</span>
+                      <input
+                        type="range"
+                        min="0"
+                        max={totalSteps}
+                        step="1"
+                        value={Math.min(lbReplayIndex, totalSteps)}
+                        onChange={(e) => scrubLbReplay(Number(e.target.value))}
+                        className="accent-[var(--accent)]"
+                      />
+                      <span className="tabular-nums text-[11px]">{Math.min(lbReplayIndex, totalSteps)} / {totalSteps}</span>
+                    </label>
+                  </div>
+                </div>
+                <div className="max-w-full overflow-auto">
+                  <Board board={boardToShow} onReveal={() => {}} onFlag={() => {}} onChord={() => {}} maxWidth={1000} />
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-5xl mx-auto px-4 py-8 space-y-8 text-[var(--text-primary)]">
       <header className="flex items-baseline justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">踩地雷</h1>
           <p className="text-sm opacity-80">
-            {view === "solo" && "單人模式（首擊保護）"}
-            {view === "versus" && "對戰模式（同圖同步／踩雷即敗）"}
+            {view === "solo" && "單人模式"}
+            {view === "versus" && "對戰模式"}
             {view === "profile" && "個人主頁（最高分與對戰紀錄）"}
           </p>
         </div>
         <div className="flex gap-2 items-center">
           <button
             onClick={() => {
+              clearSpectateView();
               setView("solo");
               setMode("solo");
             }}
@@ -1660,13 +1991,20 @@ function App() {
           >
             Blog
           </button>
-          <button
-            onClick={toggleTheme}
-            className="px-3 py-2 rounded-full text-sm border bg-[var(--surface-strong)] border-[var(--border)]"
-            aria-label="切換主題"
-          >
-            {theme === "light" ? "🌙 暗色" : "☀️ 亮色"}
-          </button>
+          <div className="flex items-center gap-2 text-sm">
+            <span className="opacity-70">主題</span>
+            <select
+              value={theme}
+              onChange={(e) => toggleTheme(e.target.value as (typeof THEME_OPTIONS)[number])}
+              className="px-3 py-2 rounded-full border bg-[var(--surface-strong)] border-[var(--border)] text-sm"
+              aria-label="切換主題"
+            >
+              <option value="light">晨光</option>
+              <option value="dark">夜幕</option>
+              <option value="forest">林間</option>
+              <option value="sunset">暮色</option>
+            </select>
+          </div>
         </div>
       </header>
 
@@ -1692,9 +2030,29 @@ function App() {
                   ) : (
                     <ul className="space-y-2 text-sm">
                       {profile.best_scores.map((b) => (
-                        <li key={`${b.difficulty}-${b.time_ms}`} className="flex items-center justify-between rounded border border-[var(--border)] bg-[var(--surface-strong)] px-3 py-2">
-                          <span className="font-medium">{b.difficulty}</span>
-                          <span className="font-mono">{formatMs(b.time_ms)} s</span>
+                        <li
+                          key={`${b.difficulty}-${b.time_ms}`}
+                          className="flex items-center justify-between gap-3 rounded border border-[var(--border)] bg-[var(--surface-strong)] px-3 py-2"
+                        >
+                          <div className="flex flex-col">
+                            <span className="font-medium">{b.difficulty}</span>
+                            <span className="text-xs opacity-70">{new Date(b.created_at).toLocaleString()}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono">{formatMs(b.time_ms)} s</span>
+                            {b.has_replay ? (
+                              <button
+                                onClick={() => {
+                                  const base = window.location.origin;
+                                  const url = `${base}?replay=${b.entry_id}`;
+                                  window.open(url, "_blank");
+                                }}
+                                className="px-2 py-1 rounded border border-[var(--border)] bg-[var(--surface)] text-xs"
+                              >
+                                查看回放
+                              </button>
+                            ) : null}
+                          </div>
                         </li>
                       ))}
                     </ul>
@@ -1800,6 +2158,15 @@ function App() {
                               className="px-2 py-1 rounded border border-[var(--border)] bg-[var(--surface)]"
                             >
                               查看
+                            </button>
+                            <button
+                              onClick={() => {
+                                setView("blog");
+                                handleOpenBlogPost(p.id, true);
+                              }}
+                              className="px-2 py-1 rounded border border-[var(--border)] bg-[var(--surface)]"
+                            >
+                              編輯
                             </button>
                             <button
                               onClick={() => handleDeleteBlogPost(p.id)}
@@ -1967,12 +2334,20 @@ function App() {
                         查看留言
                       </button>
                       {currentUser?.handle === p.author && (
-                        <button
-                          onClick={() => handleDeleteBlogPost(p.id)}
-                          className="px-3 py-1 rounded border border-red-200 bg-red-50 text-red-700"
-                        >
-                          刪除
-                        </button>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleOpenBlogPost(p.id, true)}
+                            className="px-3 py-1 rounded border border-[var(--border)] bg-[var(--surface)]"
+                          >
+                            編輯
+                          </button>
+                          <button
+                            onClick={() => handleDeleteBlogPost(p.id)}
+                            className="px-3 py-1 rounded border border-red-200 bg-red-50 text-red-700"
+                          >
+                            刪除
+                          </button>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -2118,7 +2493,7 @@ function App() {
         <>
           <section className="grid md:grid-cols-[auto,320px] gap-8 items-start justify-center">
             <div className="space-y-3 flex flex-col items-center">
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3 justify-center">
                 <div className="px-4 py-2 rounded-lg bg-[var(--surface)] shadow border border-[var(--border)]">
                   <div className="text-xs opacity-70">計時</div>
                   <div className="text-2xl font-mono">{formatMs(elapsedMs)} s</div>
@@ -2133,42 +2508,44 @@ function App() {
                 </div>
               </div>
 
-              <div className="w-max relative">
-                {mode === "versus" && vsState?.status === "active" && preStartLeft !== null && preStartLeft > 0 && (
-                  <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/50 text-white text-2xl font-semibold rounded-xl">
-                    對局將在 {preStartLeft} 秒後開始
-                  </div>
-                )}
-                {mode === "versus" && isSpectator && (vsState?.players?.length ?? 0) > 0 && (
-                  <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
-                    <span className="opacity-80">觀戰顯示：</span>
-                    {vsState?.players.map((p) => (
+              <div className="w-full overflow-auto">
+                <div className="relative inline-block">
+                  {mode === "versus" && vsState?.status === "active" && preStartLeft !== null && preStartLeft > 0 && (
+                    <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/50 text-white text-2xl font-semibold rounded-xl">
+                      對局將在 {preStartLeft} 秒後開始
+                    </div>
+                  )}
+                  {mode === "versus" && isSpectator && (vsState?.players?.length ?? 0) > 0 && (
+                    <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
+                      <span className="opacity-80">觀戰顯示：</span>
+                      {vsState?.players.map((p) => (
+                        <button
+                          key={p.id}
+                          onClick={() => setSpectatorViewPlayerId(p.id)}
+                          className={`px-3 py-1 rounded-full border text-xs ${
+                            spectatorViewPlayerId === p.id
+                              ? "bg-[var(--accent)] text-white border-transparent"
+                              : "bg-[var(--surface-strong)] border-[var(--border)]"
+                          }`}
+                        >
+                          {p.name}
+                        </button>
+                      ))}
                       <button
-                        key={p.id}
-                        onClick={() => setSpectatorViewPlayerId(p.id)}
-                        className={`px-3 py-1 rounded-full border text-xs ${
-                          spectatorViewPlayerId === p.id
-                            ? "bg-[var(--accent)] text-white border-transparent"
-                            : "bg-[var(--surface-strong)] border-[var(--border)]"
-                        }`}
+                        onClick={() => loadSpectatorBoard(spectatorViewPlayerId ?? undefined)}
+                        disabled={spectatorBoardLoading}
+                        className="px-3 py-1 rounded-full border text-xs bg-[var(--surface-strong)] border-[var(--border)] disabled:opacity-60"
                       >
-                        {p.name}
+                        {spectatorBoardLoading ? "載入中..." : "更新棋盤"}
                       </button>
-                    ))}
-                    <button
-                      onClick={() => loadSpectatorBoard(spectatorViewPlayerId ?? undefined)}
-                      disabled={spectatorBoardLoading}
-                      className="px-3 py-1 rounded-full border text-xs bg-[var(--surface-strong)] border-[var(--border)] disabled:opacity-60"
-                    >
-                      {spectatorBoardLoading ? "載入中..." : "更新棋盤"}
-                    </button>
-                    {spectatorBoardError && <span className="text-xs text-red-600">{spectatorBoardError}</span>}
-                    {spectatedPlayer && !spectatorBoardError && !spectatorBoardLoading && (
-                      <span className="text-xs opacity-70">正在查看：{spectatedPlayer.name}</span>
-                    )}
-                  </div>
-                )}
-                <Board board={boardForView} onReveal={handleReveal} onFlag={handleFlag} onChord={handleChord} />
+                      {spectatorBoardError && <span className="text-xs text-red-600">{spectatorBoardError}</span>}
+                      {spectatedPlayer && !spectatorBoardError && !spectatorBoardLoading && (
+                        <span className="text-xs opacity-70">正在查看：{spectatedPlayer.name}</span>
+                      )}
+                    </div>
+                  )}
+                  <Board board={boardForView} onReveal={handleReveal} onFlag={handleFlag} onChord={handleChord} />
+                </div>
               </div>
             </div>
 
@@ -2253,10 +2630,9 @@ function App() {
                     <div className="flex items-center justify-between gap-2">
                       <div>
                         <h2 className="text-lg font-semibold">單人難度</h2>
-                        <span className="text-xs opacity-70">獨立於對戰</span>
                       </div>
                       <button
-                        onClick={() => startFresh()}
+                        onClick={restartBoard}
                         className="px-3 py-2 rounded-full text-sm border bg-[var(--accent-strong)] text-white border-transparent"
                       >
                         重新開始
@@ -2319,12 +2695,31 @@ function App() {
                               <span className="text-xs opacity-70 w-6">#{i + 1}</span>
                               <span className="font-medium">{entry.player}</span>
                             </div>
-                            <div className="font-mono text-sm">{formatMs(entry.timeMs)} s</div>
+                            <div className="flex items-center gap-2">
+                              <div className="font-mono text-sm">{formatMs(entry.timeMs)} s</div>
+                              <button
+                                onClick={() => {
+                                  if (!entry.hasReplay) return;
+                                  const url = `${window.location.origin}?replay=${entry.id}`;
+                                  window.open(url, "_blank");
+                                }}
+                                disabled={!entry.hasReplay}
+                                className={`px-2 py-1 rounded border text-xs ${
+                                  entry.hasReplay
+                                    ? "bg-[var(--surface-strong)] border-[var(--border)]"
+                                    : "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed"
+                                }`}
+                              >
+                                {entry.hasReplay ? "回放頁" : "無回放"}
+                              </button>
+                            </div>
                           </li>
                         ))}
                       </ol>
                     )}
                   </div>
+
+                  {(lbReplayBoard || lbReplayError) && null}
                 </>
               ) : (
                 <>
@@ -2333,7 +2728,6 @@ function App() {
                     <div className="rounded border border-[var(--border)] bg-[var(--surface-strong)] px-3 py-2 text-sm">
                       <div className="flex items-center justify-between mb-2">
                         <span className="opacity-70">對戰難度（僅影響新對局）</span>
-                        <span className="text-xs opacity-70">獨立於單人</span>
                       </div>
                       <div className="flex flex-wrap gap-2">
                         {difficultiesList.map((d) => (
@@ -2605,6 +2999,8 @@ function App() {
                   if (!p) return <p className="text-sm opacity-70">沒有棋盤紀錄</p>;
 
                   const boardToShow = replayBoard ?? snap;
+                  const totalVsSteps = replaySteps.length;
+                  const clampedVsIndex = Math.min(replayIndex, totalVsSteps);
 
                   return (
                     <div className="space-y-3">
@@ -2622,41 +3018,64 @@ function App() {
                             {replayLoading ? "載入中..." : "播放此玩家步驟"}
                           </button>
                           <button
-                            onClick={() => setReplayPlaying((pState) => !pState)}
-                            disabled={replaySteps.length === 0}
-                            className="px-3 py-1.5 rounded border border-[var(--border)] bg-[var(--surface-strong)] disabled:opacity-60"
-                          >
-                            {replayPlaying ? "暫停" : "繼續"}
-                          </button>
-                          <button
                             onClick={() => {
-                              const base = buildReplayBoard();
+                              if (!replaySteps.length) return;
+                              if (replayPlaying) {
+                                setReplayPlaying(false);
+                                return;
+                              }
+                              const base = replayBase ?? buildReplayBoard();
                               if (!base) {
                                 setReplayError("無法重建回放棋盤");
                                 setReplayPlaying(false);
                                 return;
                               }
-                              setReplayIndex(0);
-                              setReplayBoard(base);
-                              setReplayPlaying(false);
+                              if (totalVsSteps > 0 && (replayIndex >= totalVsSteps || !replayBase)) {
+                                const resetBoard = rebuildReplayBoard(base, replaySteps, 0);
+                                setReplayBase(cloneBoardState(base));
+                                setReplayBoard(resetBoard);
+                                setReplayIndex(0);
+                              }
+                              setReplayPlaying(true);
                               setReplayError(null);
                             }}
                             disabled={replaySteps.length === 0}
                             className="px-3 py-1.5 rounded border border-[var(--border)] bg-[var(--surface-strong)] disabled:opacity-60"
                           >
-                            重設
+                            {replayPlaying
+                              ? "暫停"
+                              : totalVsSteps === 0
+                              ? "播放"
+                              : replayIndex >= totalVsSteps
+                              ? "重播"
+                              : replayIndex > 0
+                              ? "繼續"
+                              : "播放"}
                           </button>
                           <label className="flex items-center gap-1 text-xs opacity-80">
-                            <span>速度</span>
-                            <select
+                            <span>速度 {replaySpeed.toFixed(1)}x</span>
+                            <input
+                              type="range"
+                              min="0.5"
+                              max="2"
+                              step="0.1"
                               value={replaySpeed}
-                              onChange={(e) => setReplaySpeed(e.target.value as typeof replaySpeed)}
-                              className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1"
-                            >
-                              <option value="slow">慢</option>
-                              <option value="normal">正常</option>
-                              <option value="fast">快</option>
-                            </select>
+                              onChange={(e) => setReplaySpeed(Number(e.target.value))}
+                              className="accent-[var(--accent)]"
+                            />
+                          </label>
+                          <label className="flex items-center gap-1 text-xs opacity-80">
+                            <span>進度</span>
+                            <input
+                              type="range"
+                              min="0"
+                              max={totalVsSteps}
+                              step="1"
+                              value={clampedVsIndex}
+                              onChange={(e) => scrubVsReplay(Number(e.target.value))}
+                              className="accent-[var(--accent)]"
+                            />
+                            <span className="tabular-nums text-[11px]">{clampedVsIndex} / {totalVsSteps}</span>
                           </label>
                         </div>
                       </div>

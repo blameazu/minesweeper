@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlmodel import Session, select, func
 
 from ..db import get_session
-from ..models import LeaderboardEntry, Match, MatchPlayer, MatchStatus
+from ..models import LeaderboardEntry, LeaderboardReplay, Match, MatchPlayer, MatchStatus
 from ..schemas import ProfileResponse, ProfileBestScore, MatchHistoryItem
 from ..schemas import RankBoard, RankEntry
 from .match import _compute_standings
@@ -29,7 +29,16 @@ def _best_scores(session: Session, handle: str) -> list[ProfileBestScore]:
             ).first()
         )
         if first:
-            best.append(ProfileBestScore(difficulty=diff, time_ms=best_time, created_at=first.created_at))
+            has_replay = session.exec(select(LeaderboardReplay).where(LeaderboardReplay.entry_id == first.id)).first() is not None
+            best.append(
+                ProfileBestScore(
+                    difficulty=diff,
+                    time_ms=best_time,
+                    created_at=first.created_at,
+                    entry_id=first.id,
+                    has_replay=has_replay,
+                )
+            )
     return best
 
 

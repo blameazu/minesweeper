@@ -4,10 +4,33 @@ from pydantic import BaseModel, constr
 from pydantic import ConfigDict
 
 
+class ReplayStep(BaseModel):
+    action: Literal["reveal", "flag", "chord"]
+    x: int
+    y: int
+    elapsed_ms: Optional[int] = None
+
+
+class ReplayBoard(BaseModel):
+    width: int
+    height: int
+    mines: int
+    seed: str
+    difficulty: Optional[str] = None
+    safe_start: Optional[dict] = None
+
+
+class LeaderboardReplayUpload(BaseModel):
+    board: ReplayBoard
+    steps: list[ReplayStep]
+    duration_ms: Optional[int] = None
+
+
 class LeaderboardCreate(BaseModel):
     player: constr(strip_whitespace=True, min_length=1, max_length=50) | None = None
     difficulty: str
     time_ms: int
+    replay: LeaderboardReplayUpload | None = None
 
 
 class LeaderboardRead(BaseModel):
@@ -17,6 +40,7 @@ class LeaderboardRead(BaseModel):
     difficulty: str
     time_ms: int
     created_at: datetime
+    has_replay: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -171,6 +195,8 @@ class ProfileBestScore(BaseModel):
     difficulty: str
     time_ms: int
     created_at: datetime
+    entry_id: int
+    has_replay: bool = False
 
 
 class ProfileResponse(BaseModel):
@@ -253,3 +279,15 @@ class BlogPostItem(BaseModel):
 
 class BlogPostDetail(BlogPostItem):
     comments: list[BlogCommentRead]
+
+
+class LeaderboardReplayRead(BaseModel):
+    entry_id: int
+    player: str
+    difficulty: str
+    board: ReplayBoard
+    steps: list[ReplayStep]
+    time_ms: int
+    duration_ms: Optional[int]
+    steps_count: int
+    created_at: datetime

@@ -7,6 +7,8 @@
 :root {
   color-scheme: light;
   --bg-body: radial-gradient(120% 120% at 15% 20%, #e7f6ff 0%, #f7f2ff 35%, #fff4e5 70%);
+  --bg-glow-a: rgba(255, 122, 0, 0.08);
+  --bg-glow-b: rgba(59, 130, 246, 0.12);
   --surface: #fdfdfd;
   --surface-strong: #ffffff;
   --border: #d7dce6;
@@ -24,6 +26,8 @@
 [data-theme='dark'] {
   color-scheme: dark;
   --bg-body: radial-gradient(120% 120% at 15% 20%, #0f172a 0%, #0b1221 45%, #0a0f1d 80%);
+  --bg-glow-a: rgba(251, 146, 60, 0.14);
+  --bg-glow-b: rgba(59, 130, 246, 0.18);
   --surface: rgba(16, 24, 40, 0.85);
   --surface-strong: rgba(17, 24, 39, 0.95);
   --border: #1f2937;
@@ -36,6 +40,44 @@
   --cell-mine: #7f1d1d;
   --cell-border: #243044;
   --cell-border-strong: #334155;
+}
+
+[data-theme='forest'] {
+  color-scheme: light;
+  --bg-body: radial-gradient(120% 120% at 15% 20%, #e8f6ef 0%, #f0fbf2 40%, #f5fff8 75%);
+  --bg-glow-a: rgba(16, 185, 129, 0.16);
+  --bg-glow-b: rgba(34, 197, 94, 0.12);
+  --surface: #f5fff8;
+  --surface-strong: #eefbf2;
+  --border: #c6e6d4;
+  --text-primary: #0b2c1a;
+  --accent: #16a34a;
+  --accent-strong: #15803d;
+  --cell-bg: #dff5e7;
+  --cell-hover: #d0eddc;
+  --cell-revealed: #f3fff7;
+  --cell-mine: #ffe7d1;
+  --cell-border: #cbe8d7;
+  --cell-border-strong: #8fbfa5;
+}
+
+[data-theme='sunset'] {
+  color-scheme: light;
+  --bg-body: radial-gradient(130% 130% at 20% 15%, #fff0e5 0%, #ffe1f0 45%, #f6ecff 80%);
+  --bg-glow-a: rgba(255, 110, 89, 0.15);
+  --bg-glow-b: rgba(255, 195, 113, 0.14);
+  --surface: #fff7f2;
+  --surface-strong: #fff0e8;
+  --border: #f7d1c1;
+  --text-primary: #3a1c1a;
+  --accent: #f97316;
+  --accent-strong: #ea580c;
+  --cell-bg: #ffe7da;
+  --cell-hover: #ffd7c2;
+  --cell-revealed: #fff5ed;
+  --cell-mine: #ffd4d4;
+  --cell-border: #f5c7b0;
+  --cell-border-strong: #e89d82;
 }
 
 body {
@@ -54,8 +96,8 @@ body::after {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  background: radial-gradient(circle at 80% 10%, rgba(255, 122, 0, 0.08), transparent 40%),
-    radial-gradient(circle at 10% 80%, rgba(59, 130, 246, 0.12), transparent 35%);
+  background: radial-gradient(circle at 80% 10%, var(--bg-glow-a), transparent 40%),
+    radial-gradient(circle at 10% 80%, var(--bg-glow-b), transparent 35%);
   z-index: -1;
 }
 

@@ -93,3 +93,16 @@ class BlogVote(SQLModel, table=True):
     user_id: int = Field(foreign_key="user.id", index=True)
     value: int = Field(default=0)  # 1 for upvote, -1 for downvote
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class LeaderboardReplay(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    entry_id: int = Field(foreign_key="leaderboardentry.id", index=True)
+    player: str = Field(index=True, max_length=50)
+    difficulty: str = Field(index=True)
+    time_ms: int
+    duration_ms: Optional[int] = None
+    steps_count: int = Field(default=0)
+    board_json: str  # JSON: {width,height,mines,seed,safe_start?,difficulty?}
+    steps_json: str  # JSON array of steps
+    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
