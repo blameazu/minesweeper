@@ -5,7 +5,7 @@ import react from "@vitejs/plugin-react";
 export default defineConfig(({ mode }) => {
   const fileEnv = loadEnv(mode, process.cwd(), "");
   const env = { ...process.env, ...fileEnv } as Record<string, string | undefined>;
-  const apiBase = env.VITE_API_BASE || "http://localhost:8000";
+  const apiBase = env.VITE_API_BASEx || "http://localhost:8000";
   const basePath = env.VITE_BASE_PATH || (mode === "production" ? "/minesweeper/" : "/");
 
   return {

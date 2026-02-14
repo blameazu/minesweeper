@@ -68,7 +68,7 @@ const formatCountdown = (secs: number | null | undefined) => {
 
 const VS_SESSION_KEY = "vs_session";
 const UI_THEME_KEY = "ui_theme";
-const THEME_OPTIONS = ["light", "dark", "forest", "sunset"] as const;
+const THEME_OPTIONS = ["light", "dark", "midnight", "neon", "forest", "sunset", "ocean", "sand", "mono", "mono-dark"] as const;
 const UI_VIEW_KEY = "ui_view";
 const UI_MODE_KEY = "ui_mode";
 
@@ -591,6 +591,16 @@ function App() {
     }
   };
 
+  const loadRecentMatches = useCallback(async () => {
+    try {
+      const data = await fetchRecentMatches();
+      setRecentMatches(data);
+      setRecentError(null);
+    } catch (e) {
+      setRecentError(e instanceof Error ? e.message : "讀取最近對戰失敗");
+    }
+  }, []);
+
   useEffect(() => {
     loadLeaderboard(board.difficulty);
   }, [board.difficulty]);
@@ -600,6 +610,11 @@ function App() {
     refreshProfile();
     loadMyBlogPosts();
   }, [view, isAuthenticated, token]);
+
+  useEffect(() => {
+    if (view !== "versus") return;
+    loadRecentMatches();
+  }, [view, loadRecentMatches]);
 
   useEffect(() => {
     if (view !== "rank") return;
@@ -661,6 +676,7 @@ function App() {
   useEffect(() => {
     if (mode !== "versus" || !vsMatch) return;
     let cancelled = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
     const poll = async () => {
       try {
         const state = await fetchMatchState(vsMatch.matchId);
@@ -688,6 +704,10 @@ function App() {
         if (state.status === "finished" && prevStatus !== "finished") {
           setIsSpectator(true);
           resetReplay();
+          if (timer) {
+            clearInterval(timer);
+            timer = null;
+          }
         }
       } catch (err) {
         if (!cancelled) {
@@ -704,12 +724,14 @@ function App() {
       }
     };
     poll();
-    const id = setInterval(poll, 1000);
+    if (vsMatch.status !== "finished") {
+      timer = setInterval(poll, 1000);
+    }
     return () => {
       cancelled = true;
-      clearInterval(id);
+      if (timer) clearInterval(timer);
     };
-  }, [mode, vsMatch?.matchId]);
+  }, [mode, vsMatch?.matchId, vsMatch?.status]);
 
   useEffect(() => {
     vsStateRef.current = vsState;
@@ -720,11 +742,12 @@ function App() {
     if (!vsMatch || !vsState) return;
     if (vsState.status !== "finished") return;
 
-    if (!myPlayer) {
+    if (!myPlayer && !isSpectator) {
       setSelectedResultPlayerId(null);
       resetReplay();
       return;
     }
+    if (!myPlayer) return; // 觀戰時沒有自己的 player，避免後續存取空值
     if (selectedResultPlayerId === null && vsState.players.length > 0) {
       setSelectedResultPlayerId(vsState.players[0].id);
     }
@@ -748,13 +771,8 @@ function App() {
   useEffect(() => {
     if (vsState?.status !== "finished") return;
     refreshProfile();
-    fetchRecentMatches()
-      .then((data) => {
-        setRecentMatches(data);
-        setRecentError(null);
-      })
-      .catch((e) => setRecentError(e instanceof Error ? e.message : "讀取最近對戰失敗"));
-  }, [vsState?.status]);
+    loadRecentMatches();
+  }, [vsState?.status, loadRecentMatches]);
 
   useEffect(() => {
     if (mode !== "versus") return;
@@ -855,8 +873,22 @@ function App() {
 
   useEffect(() => {
     if (selectedResultPlayerId === null) return;
-    resetReplay();
-  }, [selectedResultPlayerId, vsMatch?.matchId]);
+    // 切換回放玩家時，立即重置播放狀態並載入該玩家快照（若有）
+    setReplayPlaying(false);
+    setReplayError(null);
+    setReplayIndex(0);
+    setReplaySteps([]);
+    const playerSnap = vsState?.players.find((p) => p.id === selectedResultPlayerId)?.progress ?? null;
+    const snapBoard = getProgressBoard(playerSnap);
+    if (snapBoard) {
+      const cloned = cloneBoardState(snapBoard);
+      setReplayBase(cloned);
+      setReplayBoard(cloneBoardState(cloned));
+    } else {
+      setReplayBase(null);
+      setReplayBoard(null);
+    }
+  }, [cloneBoardState, selectedResultPlayerId, vsMatch?.matchId, vsState]);
 
   useEffect(() => {
     if (mode !== "versus") return;
@@ -1279,13 +1311,7 @@ function App() {
           progress: { board: current }
         });
         await refreshProfile();
-        try {
-          const recent = await fetchRecentMatches();
-          setRecentMatches(recent);
-          setRecentError(null);
-        } catch (e) {
-          setRecentError(e instanceof Error ? e.message : "讀取最近對戰失敗");
-        }
+        await loadRecentMatches();
         setVsMatch({ ...vsMatch, status: "finished" });
         setIsSpectator(true);
         resetReplay();
@@ -1368,12 +1394,13 @@ function App() {
 
   useEffect(() => {
     if (!isSpectator || spectatorViewPlayerId === null) return;
+    if (vsState?.status === "finished") return; // 避免賽後回放時觀戰輪詢覆蓋棋盤
     loadSpectatorBoard(spectatorViewPlayerId);
   }, [isSpectator, loadSpectatorBoard, spectatorViewPlayerId, vsMatch?.matchId, vsState?.status]);
 
   useEffect(() => {
     if (!isSpectator || !vsMatch) return;
-    // Active/pending: poll for live updates; finished: single refresh.
+    // Active/pending: poll for live updates; finished: 不再輪詢以免干擾回放
     const status = vsState?.status;
     if (status === "finished") {
       if (!spectatorBoard && !spectatorBoardLoading) {
@@ -1981,8 +2008,14 @@ function App() {
             >
               <option value="light">晨光</option>
               <option value="dark">夜幕</option>
+              <option value="midnight">深夜</option>
+              <option value="neon">霓虹</option>
               <option value="forest">林間</option>
               <option value="sunset">暮色</option>
+              <option value="ocean">海岸</option>
+              <option value="sand">沙洲</option>
+              <option value="mono">極簡</option>
+              <option value="mono-dark">極簡暗</option>
             </select>
           </div>
         </div>
@@ -2501,7 +2534,10 @@ function App() {
                       {vsState?.players.map((p) => (
                         <button
                           key={p.id}
-                          onClick={() => setSpectatorViewPlayerId(p.id)}
+                          onClick={() => {
+                            setSpectatorViewPlayerId(p.id);
+                            loadSpectatorBoard(p.id);
+                          }}
                           className={`px-3 py-1 rounded-full border text-xs ${
                             spectatorViewPlayerId === p.id
                               ? "bg-[var(--accent)] text-white border-transparent"
@@ -2511,13 +2547,6 @@ function App() {
                           {p.name}
                         </button>
                       ))}
-                      <button
-                        onClick={() => loadSpectatorBoard(spectatorViewPlayerId ?? undefined)}
-                        disabled={spectatorBoardLoading}
-                        className="px-3 py-1 rounded-full border text-xs bg-[var(--surface-strong)] border-[var(--border)] disabled:opacity-60"
-                      >
-                        {spectatorBoardLoading ? "載入中..." : "更新棋盤"}
-                      </button>
                       {spectatorBoardError && <span className="text-xs text-red-600">{spectatorBoardError}</span>}
                       {spectatedPlayer && !spectatorBoardError && !spectatorBoardLoading && (
                         <span className="text-xs opacity-70">正在查看：{spectatedPlayer.name}</span>
@@ -2993,7 +3022,7 @@ function App() {
                         <div className="flex items-center gap-2 text-sm">
                           <button
                             onClick={startReplayForSelected}
-                            disabled={replayLoading || !snap}
+                            disabled={replayLoading}
                             className="px-3 py-1.5 rounded border border-[var(--border)] bg-[var(--surface-strong)] disabled:opacity-60"
                           >
                             {replayLoading ? "載入中..." : "播放此玩家步驟"}
