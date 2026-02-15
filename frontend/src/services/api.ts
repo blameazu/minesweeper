@@ -42,7 +42,9 @@ export const submitScore = async (params: {
     })
   });
   if (!res.ok) {
-    throw new Error(`提交失敗 (${res.status})`);
+    const text = await res.text();
+    console.error("submitScore failed:", res.status, text);
+    throw new Error(`提交失敗 (${res.status}) ${text}`);
   }
   return res.json();
 };

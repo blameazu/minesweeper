@@ -115,7 +115,6 @@ function App() {
   const [authLoading, setAuthLoading] = useState(false);
   const [token, setToken] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [autoSubmitted, setAutoSubmitted] = useState(false);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [loadingLb, setLoadingLb] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -342,10 +341,6 @@ function App() {
       }
     }
   }, [mode, restartBoard, soloDifficulty, versusDifficulty, vsMatch?.matchId]);
-
-  useEffect(() => {
-    setAutoSubmitted(false);
-  }, [board.startedAt]);
 
   useEffect(() => {
     if (!isAuthenticated || !token) {
@@ -829,7 +824,6 @@ function App() {
       });
       await loadLeaderboard(board.difficulty);
       await refreshProfile();
-      setAutoSubmitted(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "提交失敗");
     } finally {
@@ -839,37 +833,54 @@ function App() {
 
   useEffect(() => {
     if (!isAuthenticated || !token || !currentUser) return;
-    if (board.status !== "won" || !board.startedAt || !board.endedAt) return;
-    if (autoSubmitted || submitting) return;
+    if (board.status !== "won") return;
+    if (!board.startedAt || !board.endedAt) return;
+
     let cancelled = false;
+
     const run = async () => {
-      setAutoSubmitted(true);
       try {
         setSubmitting(true);
         setError(null);
+
         await submitScore({
           difficulty: board.difficulty,
           timeMs: elapsedMs,
           token,
           replay: {
-            board: { width: board.width, height: board.height, mines: board.mines, seed: board.seed, safe_start: board.safeStart ?? null },
+            board: {
+              width: board.width,
+              height: board.height,
+              mines: board.mines,
+              seed: board.seed,
+              safe_start: board.safeStart ?? null
+            },
             steps: soloReplaySteps,
             duration_ms: elapsedMs
           }
         });
+
         await loadLeaderboard(board.difficulty);
         await refreshProfile();
+
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : "提交失敗");
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : "提交失敗");
+        }
       } finally {
-        if (!cancelled) setSubmitting(false);
+        if (!cancelled) {
+          setSubmitting(false);
+        }
       }
     };
+
     run();
+
     return () => {
       cancelled = true;
     };
-  }, [autoSubmitted, board.difficulty, board.endedAt, board.startedAt, board.status, elapsedMs, isAuthenticated, token, currentUser, submitting, soloReplaySteps]);
+
+  }, [board.endedAt]); 
 
   useEffect(() => {
     if (selectedResultPlayerId === null) return;
