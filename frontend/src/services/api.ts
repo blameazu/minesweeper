@@ -247,8 +247,11 @@ export const fetchProfile = async (token: string): Promise<ProfileResponse> => {
   return res.json();
 };
 
-export const fetchRankBoard = async (): Promise<RankBoard> => {
-  const res = await fetch(`${API_BASE}/api/profile/rankings`, { headers: { ...NGROK_HEADER } });
+export const fetchRankBoard = async (token?: string): Promise<RankBoard> => {
+  const headers = { ...NGROK_HEADER };
+  if (token) Object.assign(headers, authHeaders(token));
+
+  const res = await fetch(`${API_BASE}/api/profile/rankings`, { headers });
   if (!res.ok) throw new Error(`讀取排行失敗 (${res.status})`);
   return res.json();
 };

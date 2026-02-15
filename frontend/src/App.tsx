@@ -618,7 +618,9 @@ function App() {
       try {
         setLoadingRank(true);
         setRankError(null);
-        const data = await fetchRankBoard();
+        const token = localStorage.getItem("auth_token");
+        // console.log(token);
+        const data = await fetchRankBoard(token);
         if (!cancelled) setRankBoard(data);
       } catch (e) {
         if (!cancelled) setRankError(e instanceof Error ? e.message : "讀取排行失敗");

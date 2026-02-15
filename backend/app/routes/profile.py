@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlmodel import Session, select, func
 
 from ..db import get_session
-from ..models import LeaderboardEntry, LeaderboardReplay, Match, MatchPlayer, MatchStatus
+from ..models import LeaderboardEntry, LeaderboardReplay, Match, MatchPlayer, MatchStatus, User
 from ..schemas import ProfileResponse, ProfileBestScore, MatchHistoryItem
 from ..schemas import RankBoard, RankEntry
 from .match import _compute_standings
@@ -120,6 +120,13 @@ def _first_place_board(session: Session, current_user_id: int | None, limit: int
         return max(value, 1)
 
     scores: dict[str, int] = {}
+
+    # 1. 先把所有已註冊玩家加入，預設 0 分
+    all_users = session.exec(select(User)).all()
+    for u in all_users:
+        scores[u.handle] = 0
+
+    # 2. 計算比賽分數
     matches = session.exec(select(Match).where(Match.status == MatchStatus.finished)).all()
     for match in matches:
         players = session.exec(select(MatchPlayer).where(MatchPlayer.match_id == match.id)).all()
@@ -130,18 +137,22 @@ def _first_place_board(session: Session, current_user_id: int | None, limit: int
         if total == 0:
             continue
         for rank, p in standings:
-            pts = _points_for(rank, total)
-            scores[p.name] = scores.get(p.name, 0) + pts
+            # 以 handle 累加分數
+            if p.user_id is not None:
+                user = session.get(User, p.user_id)
+                if user:
+                    scores[user.handle] += _points_for(rank, total)
 
+    # 3. 排序並取前 limit
     top_sorted = sorted(scores.items(), key=lambda x: (-x[1], x[0]))
     top_entries = [RankEntry(handle=h, score=c) for h, c in top_sorted[:limit]]
 
+    # 4. me_entry
     me_entry = None
     if current_user_id is not None:
-        me_players = session.exec(select(MatchPlayer).where(MatchPlayer.user_id == current_user_id)).all()
-        if me_players:
-            handle = me_players[0].name
-            me_entry = RankEntry(handle=handle, score=scores.get(handle, 0))
+        user = session.get(User, current_user_id)
+        if user:
+            me_entry = RankEntry(handle=user.handle, score=scores.get(user.handle, 0))
 
     return RankBoard(top=top_entries, me=me_entry)
 

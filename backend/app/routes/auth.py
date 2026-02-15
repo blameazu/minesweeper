@@ -103,4 +103,6 @@ async def login(payload: UserCreate, session: Session = Depends(get_session)):
 
 @router.get("/me", response_model=UserRead)
 async def me(current_user: User = Depends(get_current_user)):
+    if not current_user:
+        return None
     return current_user
