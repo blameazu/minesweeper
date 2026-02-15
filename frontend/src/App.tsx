@@ -1174,6 +1174,7 @@ function App() {
     };
 
     const handleJoinMatch = async (targetId?: number) => {
+        // console.log(targetId);
         if (vsMatch && !isSpectator && vsState?.status !== 'finished') {
             setVsError('已在對局中，請先退出或等待結束');
             return;
@@ -1182,6 +1183,7 @@ function App() {
         setVsMatch(null);
         setVsState(null);
         const idNum = targetId ?? Number(joinId);
+        // console.log(idNum);
         if (!idNum || Number.isNaN(idNum)) {
             setVsError('請輸入有效的對局 ID');
             return;
@@ -1260,7 +1262,6 @@ function App() {
         setVsMatch(null);
         setVsState(null);
         setIsSpectator(false);
-        setSpectateId('');
         setVsStepCount(0);
         setVsProgressUploaded(false);
         setSelectedResultPlayerId(null);
@@ -2250,7 +2251,7 @@ function App() {
                     <p className="text-sm opacity-80">
                         {view === 'solo' && '單人模式'}
                         {view === 'versus' && '對戰模式'}
-                        {view === 'profile' && '個人主頁（最高分與對戰紀錄）'}
+                        {view === 'profile' && '個人主頁'}
                     </p>
                 </div>
                 <div className="flex gap-2 items-center">
@@ -2615,16 +2616,25 @@ function App() {
                                 {rankBoard.top.map((r, idx) => (
                                     <li
                                         key={`${r.handle}-${idx}`}
-                                        className="flex items-center justify-between rounded border border-[var(--border)] bg-[var(--surface-strong)] px-3 py-2"
+                                        className={`
+                                                    flex items-center justify-between rounded border border-[var(--border)] px-3 py-2
+                                                    ${idx <= 2 ? 'bg-gray-200 bg-cover bg-center' : 'bg-[var(--surface-strong)]'}
+                                                `}
                                     >
-                                        <div className="flex items-center gap-2">
-                                            <span className="font-mono text-xs w-6 ${}">
+                                        <div
+                                            className={`flex items-center gap-2
+                                                        ${idx === 0 ? 'text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-blue-500 to-pink-500' : ''}
+                                                        ${idx === 1 ? 'text-red-500' : ''}
+                                                        ${idx === 2 ? 'text-orange-500' : ''}`}
+                                        >
+                                            <span className={`font-mono text-xs w-6`}>
                                                 #{idx + 1}
                                             </span>
                                             <span className="font-semibold">
                                                 {r.handle}
                                             </span>
                                         </div>
+
                                         <span className="font-mono">{r.score}</span>
                                     </li>
                                 ))}
@@ -2634,7 +2644,7 @@ function App() {
                         )}
 
                         {rankBoard?.me && (
-                            <div className="mt-3 rounded border border-[var(--border)] bg-[var(--surface-strong)] px-3 py-2 text-sm flex items-center justify-between">
+                            <div className="mt-3 rounded border border-[var(--border)] bg-[var(--surface-strong)] px-3 py-2 text-sm flex items-center justify-between bg-gray-400">
                                 <span className="font-semibold opacity-70">
                                     你的積分
                                 </span>
@@ -3419,7 +3429,11 @@ function App() {
                                                 建立對局
                                             </button>
                                             <button
-                                                onClick={handleJoinMatch}
+                                                onClick={(e) => {
+                                                    (async () => {
+                                                        await handleJoinMatch();
+                                                    })();
+                                                }}
                                                 disabled={
                                                     !isAuthenticated ||
                                                     !currentUser ||
@@ -3459,7 +3473,11 @@ function App() {
                                             className="w-full rounded border border-[var(--border)] px-3 py-2 bg-[var(--surface-strong)]"
                                         />
                                         <button
-                                            onClick={handleSpectate}
+                                            onClick={(e) => {
+                                                (async () => {
+                                                    await handleSpectate();
+                                                })();
+                                            }}
                                             disabled={
                                                 !!vsMatch &&
                                                 !isSpectator &&

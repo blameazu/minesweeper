@@ -300,7 +300,7 @@ async def create_match(payload: MatchCreate, session: Session = Depends(get_sess
 
 
 @router.post("/{match_id}/join", response_model=MatchJoinResponse)
-async def join_match(match_id: int, payload: MatchJoin, session: Session = Depends(get_session), user=Depends(get_current_user)):
+async def join_match(match_id: int, session: Session = Depends(get_session), user=Depends(get_current_user)):
     if not user:
         raise HTTPException(status_code=401, detail="login required")
     match = _get_match(session, match_id)

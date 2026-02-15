@@ -127,6 +127,7 @@ export const createMatch = async (params: {
 };
 
 export const joinMatch = async (matchId: number, params: { token: string }): Promise<MatchSession> => {
+    // console.log(matchId);
   const res = await fetch(`${API_BASE}/api/match/${matchId}/join`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...NGROK_HEADER, ...authHeaders(params.token) },
