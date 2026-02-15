@@ -21,6 +21,8 @@ backend/.venv/
 .db
 .sqlite
 backend/mine*.db
+.prettierrc
+.editorconfig
 
 # Editors / IDE
 .vscode/

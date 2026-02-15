@@ -47,6 +47,8 @@ export interface ReplayStep {
 }
 
 export interface LeaderboardReplay {
+  player: string;
+  difficulty: DifficultyKey;
   entry_id: number;
   board: {
     width: number;
