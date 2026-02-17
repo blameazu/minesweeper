@@ -10,14 +10,15 @@
     "test": "vitest"
   },
   "dependencies": {
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "zustand": "^4.5.4",
     "clsx": "^2.1.1",
+    "dompurify": "^3.1.6",
+    "katex": "^0.16.11",
     "markdown-it": "^14.1.0",
     "markdown-it-katex": "^2.0.3",
-    "katex": "^0.16.11",
-    "dompurify": "^3.1.6"
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^7.13.0",
+    "zustand": "^4.5.4"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.4.2",

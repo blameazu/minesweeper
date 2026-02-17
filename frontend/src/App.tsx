@@ -2612,20 +2612,20 @@ function App() {
                         ) : rankError ? (
                             <p className="text-sm text-red-600">{rankError}</p>
                         ) : rankBoard && rankBoard.top.length > 0 ? (
-                            <ol className="space-y-2 text-sm">
+                            <ol className="rank-list space-y-2 text-sm">
                                 {rankBoard.top.map((r, idx) => (
                                     <li
                                         key={`${r.handle}-${idx}`}
                                         className={`
-                                                    flex items-center justify-between rounded border border-[var(--border)] px-3 py-2
-                                                    ${idx <= 2 ? 'bg-gray-200 bg-cover bg-center' : 'bg-[var(--surface-strong)]'}
-                                                `}
+                                            flex items-center justify-between rounded border border-[var(--border)] px-3 py-2
+                                            ${idx <= 2 ? 'bg-black-500 bg-cover bg-center' : 'bg-[var(--surface-strong)]'}
+                                        `}
                                     >
                                         <div
                                             className={`flex items-center gap-2
-                                                        ${idx === 0 ? 'text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-blue-500 to-pink-500' : ''}
-                                                        ${idx === 1 ? 'text-red-500' : ''}
-                                                        ${idx === 2 ? 'text-orange-500' : ''}`}
+                                        ${idx === 0 ? 'text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-blue-500 to-pink-500' : ''}
+                                        ${idx === 1 ? 'text-red-500' : ''}
+                                        ${idx === 2 ? 'text-orange-500' : ''}`}
                                         >
                                             <span className={`font-mono text-xs w-6`}>
                                                 #{idx + 1}
